@@ -13,6 +13,11 @@ routes = [
 
 [vars]
 SITE_URL = "https://jobs.foundry-ns.com"
+# Cloudflare Access fronts the whole hostname. The Worker verifies the JWT it
+# forwards rather than trusting that the edge did its job. The AUD tag is a
+# public identifier for the Access application, not a secret.
+ACCESS_TEAM_DOMAIN = "clydeford.cloudflareaccess.com"
+ACCESS_AUD = "25a7138d9297ee61bee2a44862ca477321386234e758b96ee0aeb77f5a974ede"
 
 [[d1_databases]]
 binding = "DB"

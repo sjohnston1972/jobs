@@ -61,25 +61,5 @@ export async function signedUrl(
   return url.toString();
 }
 
-/**
- * Session token for the portal: "<expiry-epoch-seconds>.<hmac>".
- * Stateless, so no session table and no D1 read on every request.
- */
-export async function issueSession(secret: string, ttlSeconds: number, now: number): Promise<string> {
-  const expiry = Math.floor(now / 1000) + ttlSeconds;
-  const sig = await sign(secret, `session|${expiry}`);
-  return `${expiry}.${sig}`;
-}
-
-export async function verifySession(
-  secret: string,
-  token: string | null,
-  now: number,
-): Promise<boolean> {
-  if (!token) return false;
-  const [expiryRaw, sig] = token.split('.');
-  const expiry = Number(expiryRaw);
-  if (!Number.isFinite(expiry) || !sig) return false;
-  if (expiry * 1000 < now) return false;
-  return verify(secret, `session|${expiry}`, sig);
-}
+// Portal sign-in is handled by Cloudflare Access (see lib/access.ts), so there
+// is no session token to issue here. HMAC remains for the links in the digest.

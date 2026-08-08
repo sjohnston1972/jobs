@@ -82,6 +82,7 @@ export function renderPortal(
   filter: PortalFilter,
   criteria: Criteria,
   lastRun: Record<string, unknown> | null,
+  viewer: string,
 ): string {
   const lastRunAt = lastRun?.finished_at ?? lastRun?.started_at;
   const hoursSince = lastRunAt
@@ -185,7 +186,8 @@ export function renderPortal(
 
   <footer class="footer">
     <span>${jobs.length} shown &nbsp;·&nbsp; threshold ${criteria.minScoreForDigest} &nbsp;·&nbsp; scored by ${escapeHtml(criteria.scoringModel)}</span>
-    <span><a href="/health">/health</a></span>
+    <span>${escapeHtml(viewer)} &nbsp;·&nbsp; <a href="/cdn-cgi/access/logout">Sign out</a>
+      &nbsp;·&nbsp; <a href="/health">/health</a></span>
   </footer>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>`;
@@ -380,20 +382,6 @@ const CLIENT_SCRIPT = /* js */ `
 `;
 
 // ------------------------------------------------------------------ small pages
-
-export function renderGate(error?: string): string {
-  const body = `<div class="gate">
-  <form class="gate__card" method="post" action="/login">
-    <h1 class="brand__name">Job Monitor</h1>
-    <div class="brand__sub">Private &nbsp;·&nbsp; sign in to continue</div>
-    <input class="gate__field" type="password" name="password" placeholder="Password"
-           autocomplete="current-password" autofocus aria-label="Password" required>
-    <button class="btn btn--primary gate__submit" type="submit">Sign in</button>
-    ${error ? `<p class="gate__error">${escapeHtml(error)}</p>` : ''}
-  </form>
-</div>`;
-  return layout('Sign in — Job Monitor', body);
-}
 
 export function renderTrackConfirm(job: ScoredJob | null, status: string): string {
   const body = `<div class="prose">

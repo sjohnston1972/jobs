@@ -2,7 +2,8 @@ import { criteria, profile } from './lib/config';
 import * as db from './lib/db';
 import { sendEmail } from './lib/email';
 import { pool } from './lib/pool';
-import { issueSession, verify, verifySession } from './lib/sign';
+import { verifyAccess } from './lib/access';
+import { verify } from './lib/sign';
 import type { Env, JobRow, NormalisedJob, RunCounts, ApplicationStatus } from './lib/types';
 import { APPLICATION_STATUSES } from './lib/types';
 import { fetchAdzuna } from './sources/adzuna';
@@ -14,7 +15,6 @@ import { scoreJob } from './pipeline/score';
 import { tailorForJob, tailoredEmail } from './pipeline/tailor';
 import {
   layout,
-  renderGate,
   renderMessage,
   renderPortal,
   renderTailored,
@@ -25,10 +25,8 @@ import {
  * Bumped by hand whenever pipeline behaviour changes. /health reports it, so
  * "is the fix actually live?" is a question with an answer rather than a guess.
  */
-export const BUILD = 'v6-structured-outputs';
+export const BUILD = 'v7-cloudflare-access';
 
-const SESSION_COOKIE = 'jm_session';
-const SESSION_TTL = 60 * 60 * 24 * 30; // 30 days
 const SCORING_CONCURRENCY = 3;
 /** Bounds the subrequest count: one detail call per title-matching Reed job. */
 const MAX_ENRICH_PER_RUN = 60;
@@ -202,18 +200,23 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-function readCookie(request: Request, name: string): string | null {
-  const header = request.headers.get('cookie');
-  if (!header) return null;
-  for (const part of header.split(';')) {
-    const [key, ...rest] = part.trim().split('=');
-    if (key === name) return decodeURIComponent(rest.join('='));
-  }
-  return null;
+/**
+ * Cloudflare Access blocks unauthenticated requests at the edge; this verifies
+ * the assertion it forwards, so the Worker never relies on an upstream promise.
+ */
+async function signedInEmail(request: Request, env: Env): Promise<string | null> {
+  return verifyAccess(request, env.ACCESS_TEAM_DOMAIN, env.ACCESS_AUD);
 }
 
-async function isSignedIn(request: Request, env: Env): Promise<boolean> {
-  return verifySession(env.TRACK_SIGNING_SECRET, readCookie(request, SESSION_COOKIE), Date.now());
+function notAuthorised(): Response {
+  return html(
+    renderMessage(
+      'Not authorised',
+      'This page is restricted. Sign in through Cloudflare Access with the ' +
+        'approved account, then try again.',
+    ),
+    403,
+  );
 }
 
 /** Verifies the `sig` on links that arrive from an email. */
@@ -261,33 +264,7 @@ export default {
         });
       }
 
-      // ---------------------------------------------------------- auth
-      if (path === '/login' && request.method === 'POST') {
-        const form = await request.formData();
-        const supplied = String(form.get('password') ?? '');
-        if (!env.PORTAL_PASSWORD || supplied !== env.PORTAL_PASSWORD) {
-          return html(renderGate('That password was not recognised.'), 401);
-        }
-        const token = await issueSession(env.TRACK_SIGNING_SECRET, SESSION_TTL, Date.now());
-        return new Response(null, {
-          status: 302,
-          headers: {
-            location: '/',
-            'set-cookie':
-              `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_TTL}`,
-          },
-        });
-      }
-
-      if (path === '/logout') {
-        return new Response(null, {
-          status: 302,
-          headers: {
-            location: '/',
-            'set-cookie': `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
-          },
-        });
-      }
+      // Access owns sign-in and sign-out; /cdn-cgi/access/logout ends the session.
 
       // ---------------------------------------------------------- track
       // Signed link from the digest. Without the signature this endpoint is an
@@ -341,11 +318,11 @@ export default {
         );
       }
 
-      // ---------------------------------------------------------- everything below needs a session
-      const signedIn = await isSignedIn(request, env);
+      // ------------------------------------------------- everything below needs Access
+      const viewer = await signedInEmail(request, env);
 
       if (path === '/tailored') {
-        if (!signedIn) return html(renderGate(), 401);
+        if (!viewer) return notAuthorised();
         const jobId = url.searchParams.get('job') ?? '';
         const [scored, cached] = await Promise.all([
           db.getScoredJob(env.DB, jobId),
@@ -361,7 +338,7 @@ export default {
       }
 
       if (path === '/api/status' && request.method === 'POST') {
-        if (!signedIn) return json({ error: 'not signed in' }, 401);
+        if (!viewer) return json({ error: 'not authorised' }, 403);
         const body = (await request.json()) as { job?: string; status?: string; notes?: string };
         const status = String(body.status ?? '');
         if (!body.job || !APPLICATION_STATUSES.includes(status as ApplicationStatus)) {
@@ -372,7 +349,7 @@ export default {
       }
 
       if (path === '/api/tailor' && request.method === 'POST') {
-        if (!signedIn) return json({ error: 'not signed in' }, 401);
+        if (!viewer) return json({ error: 'not authorised' }, 403);
         const body = (await request.json()) as { job?: string };
         if (!body.job) return json({ error: 'job is required' }, 400);
         const result = await ensureTailored(env, body.job);
@@ -381,7 +358,7 @@ export default {
       }
 
       if (path === '/run') {
-        if (!signedIn) return json({ error: 'not signed in' }, 401);
+        if (!viewer) return json({ error: 'not authorised' }, 403);
         const result = await runPipeline(env);
         return json({ ok: true, ...result });
       }
@@ -390,7 +367,7 @@ export default {
       // ?min= overrides the threshold and ?days= widens the window, so the
       // layout can be checked on a day when nothing actually matched.
       if (path === '/digest/preview') {
-        if (!signedIn) return json({ error: 'not signed in' }, 401);
+        if (!viewer) return json({ error: 'not authorised' }, 403);
         const min = Number(url.searchParams.get('min') ?? criteria.minScoreForDigest);
         const days = Number(url.searchParams.get('days') ?? 1);
         const since = db.daysAgoIso(Number.isFinite(days) ? days : 1);
@@ -419,14 +396,14 @@ export default {
       }
 
       if (path === '/weekly') {
-        if (!signedIn) return json({ error: 'not signed in' }, 401);
+        if (!viewer) return json({ error: 'not authorised' }, 403);
         await runWeeklySummary(env);
         return json({ ok: true });
       }
 
       // ---------------------------------------------------------- portal
       if (path === '/') {
-        if (!signedIn) return html(renderGate());
+        if (!viewer) return notAuthorised();
 
         const minRaw = url.searchParams.get('min');
         const filter = {
@@ -446,7 +423,7 @@ export default {
           db.getLastRun(env.DB),
         ]);
 
-        return html(renderPortal(jobs, stats, filter, criteria, lastRun ?? null));
+        return html(renderPortal(jobs, stats, filter, criteria, lastRun ?? null, viewer));
       }
 
       return html(renderMessage('Not found', `Nothing is served at ${path}.`), 404);

@@ -512,38 +512,6 @@ a:hover { text-decoration: underline; }
   justify-content: space-between;
 }
 
-/* ---------------------------------------------------------- sign in */
-
-.gate {
-  min-height: 100svh;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-.gate__card {
-  width: 100%;
-  max-width: 380px;
-  background: var(--panel);
-  border: 1px solid var(--rule);
-  border-top: 3px solid var(--accent);
-  border-radius: var(--unit-r);
-  padding: 30px;
-}
-.gate__field {
-  width: 100%;
-  margin: 20px 0 14px;
-  padding: 11px 13px;
-  background: var(--well);
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 13px;
-}
-.gate__field:focus { border-color: var(--accent); outline: none; }
-.gate__submit { width: 100%; padding: 11px; font-size: 10.5px; }
-.gate__error { color: var(--sig-fail); font-size: 13px; margin-top: 12px; }
-
 /* ---------------------------------------------------------- prose pages */
 
 .prose { max-width: 760px; margin: 0 auto; padding: 44px 20px 80px; }

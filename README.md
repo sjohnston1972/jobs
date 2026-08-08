@@ -24,7 +24,8 @@ Runs on Cloudflare Workers with D1 for state. Full design: `job-monitor-spec.md`
 
 ## The portal
 
-`https://jobs.foundry-ns.com` — password protected. Every posting is a rack-unit
+`https://jobs.foundry-ns.com` — behind Cloudflare Access, restricted to a single
+Google account. Every posting is a rack-unit
 strip: score readout, a three-segment remote-confidence meter, the quoted
 evidence behind the remote judgement, and one-click status marking. Filter by
 score, status, remote confidence, or free text.
@@ -34,16 +35,19 @@ measured, sans for everything a human wrote.
 
 ## Endpoints
 
+Cloudflare Access fronts the whole hostname, so every route needs a signed-in
+session. The HMAC on the two email-reachable routes is kept as a second layer.
+
 | Route | Auth | Purpose |
 |---|---|---|
-| `/` | session | The portal |
-| `/health` | none | Last run, table list, build marker |
-| `/track` | HMAC | Status links from the digest email |
-| `/tailor` | HMAC | Generate and email a tailored CV + cover letter |
-| `/tailored` | session | View a cached draft |
-| `/run` | session | Trigger a collection run now |
-| `/weekly` | session | Send the weekly application summary now |
-| `/digest/preview` | session | Render the digest email without sending it |
+| `/` | Access | The portal |
+| `/health` | Access | Last run, table list, build marker |
+| `/track` | Access + HMAC | Status links from the digest email |
+| `/tailor` | Access + HMAC | Generate and email a tailored CV + cover letter |
+| `/tailored` | Access | View a cached draft |
+| `/run` | Access | Trigger a collection run now |
+| `/weekly` | Access | Send the weekly application summary now |
+| `/digest/preview` | Access | Render the digest email without sending it |
 
 ## Setup
 
@@ -52,10 +56,15 @@ npm install
 npx wrangler d1 create job-monitor          # put the id in wrangler.toml
 npm run db:schema                            # apply schema.sql
 for k in REED_API_KEY ADZUNA_APP_ID ADZUNA_APP_KEY ANTHROPIC_API_KEY \
-         RESEND_API_KEY TRACK_SIGNING_SECRET DIGEST_TO DIGEST_FROM \
-         PORTAL_PASSWORD; do npx wrangler secret put $k; done
+         RESEND_API_KEY TRACK_SIGNING_SECRET DIGEST_TO DIGEST_FROM; do
+  npx wrangler secret put $k
+done
 npm run deploy
 ```
+
+Then create a Cloudflare Access application for the hostname with an allow
+policy for your account, and put its team domain and AUD tag into the `[vars]`
+block in `wrangler.toml`. The Worker verifies the assertion Access forwards.
 
 Cron triggers are declared in `wrangler.toml`: 06:00 UTC daily for collection,
 07:00 UTC Sunday for the application summary. Cron is always UTC, so the daily

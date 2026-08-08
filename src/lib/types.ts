@@ -15,10 +15,13 @@ export interface Env {
   TRACK_SIGNING_SECRET: string;
   DIGEST_TO: string;
   DIGEST_FROM: string;
-  PORTAL_PASSWORD: string;
 
   // Plain vars
   SITE_URL: string;
+  /** Cloudflare Access team domain, e.g. clydeford.cloudflareaccess.com */
+  ACCESS_TEAM_DOMAIN: string;
+  /** The Access application's AUD tag. Public identifier, not a secret. */
+  ACCESS_AUD: string;
 }
 
 export type ContractType = 'permanent' | 'contract' | 'unknown';

@@ -17,7 +17,7 @@ Cron 06:00 UTC ──> scheduled() ──> fetch ──> dedupe ──> title ga
                                                      body gate
                                                           │
                                               score (Claude) ──> digest ──> Resend
-fetch() serves  /            portal (session cookie)
+fetch() serves  /            portal (Cloudflare Access)
                 /track       signed status links from the digest
                 /tailor      signed CV + cover letter draft
                 /health      last run summary + build marker
@@ -83,9 +83,24 @@ too little gets through; the threshold is the lever when too much does.
 Manual endpoints (all need a portal session): `/run`, `/weekly`,
 `/digest/preview?min=0&days=7` renders the digest email without sending it.
 
-## Secrets
+## Access and secrets
 
-Nine, all pushed with `wrangler secret put` and never in the repo. `.env` holds
-local copies and is gitignored. `PORTAL_PASSWORD` gates the portal — without it
-the site would be an open write to the database and an open tap on the
-Anthropic key.
+The whole hostname sits behind a Cloudflare Access application ("Job Monitor",
+team `clydeford.cloudflareaccess.com`) with a single allow policy for
+`stevie.johnston@gmail.com`, via Google or one-time PIN. There is no password
+login in the Worker.
+
+Access blocks unauthenticated requests at the edge, but `lib/access.ts` verifies
+the forwarded JWT anyway — signature against the team JWKS, issuer, expiry and
+AUD. "Something upstream is supposed to be handling it" is not an access
+control, and the Worker holds both personal data and a live Anthropic key.
+
+`ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are plain vars in `wrangler.toml`; the AUD
+tag is a public identifier, not a secret. Every rejection logs its reason, so
+`npx wrangler tail` distinguishes an expired assertion from an AUD mismatch.
+
+Because `/health` is behind Access too, deploys can no longer be verified with
+an unauthenticated `curl` — check `build` in a browser, or read `wrangler tail`.
+
+Eight secrets, all pushed with `wrangler secret put` and never in the repo.
+`.env` holds local copies and is gitignored.
