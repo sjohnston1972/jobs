@@ -70,7 +70,6 @@ body {
 }
 
 a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
 
 :focus-visible {
   outline: 2px solid var(--accent);
@@ -179,6 +178,64 @@ a:hover { text-decoration: underline; }
 .search::placeholder { color: var(--dimmer); letter-spacing: 0.04em; }
 .search:focus { border-color: var(--accent); outline: none; }
 
+/* Filter disclosure. Desktop shows every chipset inline; on a phone fourteen
+   chips would fill the first screen before a single job appeared, so they
+   collapse behind a toggle. Checkbox rather than <details> so it works with
+   no JS and the desktop layout is a plain CSS override. */
+
+/* visibility:hidden keeps the control out of the tab order and off the
+   accessibility tree on desktop, where the panel is always open and the toggle
+   is not rendered. The mobile breakpoint switches it back on. */
+.filters__check {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.filters__toggle {
+  display: none;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid var(--rule);
+  border-radius: var(--unit-r);
+  background: var(--panel);
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+}
+.filters__check:focus-visible + .filters__toggle {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.filters__toggle::after { content: '+'; font-size: 13px; line-height: 1; }
+.filters__check:checked + .filters__toggle::after { content: '–'; }
+.filters__check:checked + .filters__toggle {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Count of applied filters, so a collapsed panel never hides that a view is filtered. */
+.filters__count {
+  display: inline-block;
+  min-width: 16px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #12070A;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.filters__body {
+  display: contents;
+}
+
 .chipset { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 
 .chipset__label {
@@ -204,7 +261,6 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
   transition: border-color .12s ease, color .12s ease, background .12s ease;
 }
-.chip:hover { color: var(--text); border-color: var(--dimmer); text-decoration: none; }
 .chip[aria-pressed="true"] {
   background: var(--accent);
   border-color: var(--accent);
@@ -290,7 +346,7 @@ a:hover { text-decoration: underline; }
   margin: 0;
 }
 .unit__title a { color: var(--text); }
-.unit__title a:hover { color: var(--accent); text-decoration: none; }
+.unit__title { overflow-wrap: anywhere; }
 
 .unit__employer {
   font-family: var(--sans);
@@ -382,7 +438,6 @@ a:hover { text-decoration: underline; }
   text-align: center;
   transition: border-color .12s ease, color .12s ease, background .12s ease;
 }
-.btn:hover { color: var(--text); border-color: var(--dimmer); text-decoration: none; }
 .btn:disabled { opacity: .5; cursor: default; }
 
 .btn--primary {
@@ -391,7 +446,6 @@ a:hover { text-decoration: underline; }
   color: #12070A;
   font-weight: 700;
 }
-.btn--primary:hover { background: var(--accent-dk); border-color: var(--accent-dk); color: #fff; }
 
 .btn--on {
   background: color-mix(in srgb, var(--sig-high) 16%, transparent);
@@ -431,8 +485,10 @@ a:hover { text-decoration: underline; }
   line-height: 1.65;
   color: var(--dim);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   max-height: 340px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding-right: 8px;
 }
 
@@ -546,27 +602,125 @@ a:hover { text-decoration: underline; }
   * { transition-duration: .01ms !important; }
 }
 
+/* ---------------------------------------------------------- pointer + hover
+   Hover styling is opt-in. On a touchscreen :hover latches after a tap and
+   leaves buttons looking permanently focused. */
+
+@media (hover: hover) {
+  a:hover { text-decoration: underline; }
+  .chip:hover { color: var(--text); border-color: var(--dimmer); text-decoration: none; }
+  .btn:hover { color: var(--text); border-color: var(--dimmer); text-decoration: none; }
+  .btn--primary:hover { background: var(--accent-dk); border-color: var(--accent-dk); color: #fff; }
+  .unit__title a:hover { color: var(--accent); text-decoration: none; }
+  .filters__toggle:hover { color: var(--text); border-color: var(--dimmer); }
+}
+
+/* Touch targets. The panel aesthetic wants small silkscreen type, but a 25px
+   button is not tappable — so the label stays small and the hit area grows. */
+
+@media (pointer: coarse) {
+  .btn,
+  .chip,
+  .filters__toggle {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .statusbar .btn { min-height: 44px; padding: 6px 4px; }
+  .search { min-height: 44px; }
+  .unit__title a { display: inline-block; padding: 2px 0; }
+}
+
 /* ---------------------------------------------------------- responsive */
 
 @media (max-width: 860px) {
-  .unit__face { grid-template-columns: 58px 1fr; gap: 14px; }
+  .shell {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+
+  .masthead { padding: 22px 0 14px; gap: 16px; }
+  .brand__sub { font-size: 10px; line-height: 1.6; }
+
+  /* Six readouts wrap into an ugly 4+2 at this width; a fixed 3-column grid
+     keeps them aligned and readable. */
+  .readouts { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
+  .readout { min-width: 0; padding: 9px 10px; border-bottom: 1px solid var(--rule); }
+  .readout:nth-child(3n) { border-right: 0; }
+  .readout:nth-last-child(-n + 3) { border-bottom: 0; }
+  .readout__value { font-size: 16px; }
+  .readout__label { font-size: 9px; letter-spacing: 0.08em; }
+
+  .controls { gap: 10px; padding: 14px 0; }
+  .search {
+    flex: 1 1 auto;
+    /* iOS zooms the whole page when a focused input is under 16px. */
+    font-size: 16px;
+    padding: 10px 12px;
+  }
+  .controls > .btn { flex: 0 0 auto; }
+
+  .filters__check { visibility: visible; }
+  .filters__toggle { display: inline-flex; }
+  .filters__body {
+    display: none;
+    flex-basis: 100%;
+    flex-direction: column;
+    gap: 12px;
+    padding-top: 4px;
+  }
+  .filters__check:checked ~ .filters__body { display: flex; }
+  .chipset { gap: 8px; }
+  .chipset__label { font-size: 9.5px; flex-basis: 100%; margin: 0 0 2px; }
+  .chip { font-size: 11px; padding: 8px 13px; }
+
+  .unit__face { grid-template-columns: 56px 1fr; gap: 14px; padding: 15px 15px 16px; }
+  .well__score { font-size: 21px; }
+  .well__band { font-size: 8.5px; }
+  .meter__seg { width: 10px; height: 4px; }
+
+  .unit__title { font-size: 16px; }
+  .spec { font-size: 10.5px; padding: 4px 8px; }
+  .capture { font-size: 14px; }
+  .reason { font-size: 14.5px; }
+
+  /* Actions become a full-width block under the body: primary action alone on
+     its row, then secondary, then status. Thumb order, not desktop order. */
   .actions {
     grid-column: 1 / -1;
     flex-direction: row;
     flex-wrap: wrap;
+    gap: 8px;
     min-width: 0;
+    margin-top: 2px;
   }
-  .actions .btn { flex: 1 1 90px; }
-  .well__score { font-size: 21px; }
-  .masthead { padding-top: 24px; }
-  .readouts { width: 100%; }
-  .readout { flex: 1 1 auto; min-width: 62px; }
+  .actions .btn { flex: 1 1 auto; font-size: 11px; }
+  .actions > .btn--primary { flex-basis: 100%; }
+  .statusbar { flex-basis: 100%; gap: 6px; }
+  .statusbar .btn { flex: 1 1 0; font-size: 10px; letter-spacing: 0.03em; }
+
+  .drawer { padding: 15px 15px 18px; }
+  .drawer__text { max-height: 260px; font-size: 14px; }
+  .drawer__meta { gap: 10px 16px; font-size: 10px; }
+
+  .footer { font-size: 10.5px; gap: 10px; line-height: 1.7; }
+  .toast { bottom: calc(18px + env(safe-area-inset-bottom)); font-size: 11px; }
+  .prose { padding: 32px 18px 64px; }
+  .prose pre { font-size: 12.5px; padding: 14px; }
 }
 
-@media (max-width: 520px) {
-  .shell { padding: 0 14px 60px; }
+@media (max-width: 400px) {
+  .shell { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  .unit__face { grid-template-columns: 50px 1fr; gap: 11px; padding: 14px 12px 15px; }
+  .well { padding: 8px 4px 7px; }
+  .well__score { font-size: 19px; }
+  .meter__seg { width: 8px; }
   .unit__title { font-size: 15.5px; }
-  .readout { padding: 6px 10px; }
+  .readout { padding: 8px 7px; }
   .readout__value { font-size: 15px; }
+  .readout__label { font-size: 8.5px; letter-spacing: 0.06em; }
+  .statusbar .btn { font-size: 9.5px; padding: 6px 2px; }
 }
 `;

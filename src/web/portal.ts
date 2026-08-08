@@ -12,9 +12,14 @@ export function layout(title: string, body: string, extraScript = ''): string {
 <html lang="en-GB">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- viewport-fit=cover lets the safe-area insets in the stylesheet do their job
+     on notched phones; the shell pads itself back out. -->
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0A1113" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#EEF2F2" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>${escapeHtml(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -150,6 +155,12 @@ export function renderPortal(
     .map((c) => chip(c.label, queryFor(filter, { sort: c.value }), (filter.sort ?? '') === (c.value ?? '')))
     .join('');
 
+  // Drives the badge on the collapsed toggle, so a filtered view never looks
+  // like an empty one on a phone.
+  const activeFilters = [filter.minScore, filter.status, filter.remote, filter.sort].filter(
+    (v) => v !== undefined && v !== null && v !== '',
+  ).length;
+
   const stack = jobs.length
     ? `<div class="stack">${jobs.map((job, i) => renderUnit(job, i, criteria)).join('')}</div>`
     : renderEmpty(filter, criteria);
@@ -175,10 +186,17 @@ export function renderPortal(
     ${filter.sort ? `<input type="hidden" name="sort" value="${escapeHtml(filter.sort)}">` : ''}
     <button class="btn" type="submit">Search</button>
 
-    <div class="chipset"><span class="chipset__label">Score</span>${scoreChips}</div>
-    <div class="chipset"><span class="chipset__label">Status</span>${statusChips}</div>
-    <div class="chipset"><span class="chipset__label">Remote</span>${remoteChips}</div>
-    <div class="chipset"><span class="chipset__label">Sort</span>${sortChips}</div>
+    <input class="filters__check" type="checkbox" id="filters-toggle"${activeFilters ? ' checked' : ''}>
+    <label class="filters__toggle" for="filters-toggle">Filters${
+      activeFilters ? ` <span class="filters__count">${activeFilters}</span>` : ''
+    }</label>
+
+    <div class="filters__body">
+      <div class="chipset"><span class="chipset__label">Score</span>${scoreChips}</div>
+      <div class="chipset"><span class="chipset__label">Status</span>${statusChips}</div>
+      <div class="chipset"><span class="chipset__label">Remote</span>${remoteChips}</div>
+      <div class="chipset"><span class="chipset__label">Sort</span>${sortChips}</div>
+    </div>
   </form>
 
   ${staleNotice}
