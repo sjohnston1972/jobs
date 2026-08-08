@@ -1,0 +1,33 @@
+name = "job-monitor"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+# The portal is private, so keep the workers.dev hostname off the internet
+# and serve only from the custom domain.
+workers_dev = false
+preview_urls = false
+
+routes = [
+  { pattern = "jobs.foundry-ns.com", custom_domain = true }
+]
+
+[vars]
+SITE_URL = "https://jobs.foundry-ns.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "job-monitor"
+database_id = "f0192270-392b-460d-8794-963013c0eeff"
+
+# 06:00 UTC daily collection, 07:00 UTC Sunday application summary.
+# Cron is always UTC, so the daily digest lands at 07:00 during BST.
+[triggers]
+crons = ["0 6 * * *", "0 7 * * SUN"]
+
+# config/profile.md is bundled into the Worker as a string.
+[[rules]]
+type = "Text"
+globs = ["**/*.md"]
+
+[observability]
+enabled = true

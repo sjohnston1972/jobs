@@ -1,0 +1,20 @@
+{
+  "name": "job-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Daily UK remote-role collector, scorer and digest on Cloudflare Workers",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "db:schema": "wrangler d1 execute job-monitor --remote --file=./schema.sql",
+    "db:schema:local": "wrangler d1 execute job-monitor --local --file=./schema.sql",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260808.1",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.120.0"
+  }
+}

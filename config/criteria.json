@@ -1,0 +1,56 @@
+{
+  "titleAllow": [
+    "network architect",
+    "cloud network",
+    "solutions architect",
+    "infrastructure architect",
+    "network consultant",
+    "principal engineer",
+    "technical lead",
+    "lead architect",
+    "enterprise architect",
+    "security architect",
+    "principal architect",
+    "network design",
+    "technical architect"
+  ],
+  "titleBlock": [
+    "sales",
+    "account manager",
+    "business development",
+    "graduate",
+    "apprentice",
+    "trainee",
+    "junior",
+    "field engineer",
+    "desktop support",
+    "service desk",
+    "1st line",
+    "2nd line",
+    "first line",
+    "second line",
+    "recruitment consultant"
+  ],
+  "bodyRequireAny": [
+    "remote",
+    "home based",
+    "home-based",
+    "homeworking",
+    "home working",
+    "fully remote",
+    "work from home"
+  ],
+  "minScoreForDigest": 60,
+  "tailorThreshold": 70,
+  "maxScoredPerRun": 40,
+  "lookbackDays": 7,
+  "contractTypes": ["permanent", "contract"],
+  "seedQueries": [
+    "network architect",
+    "cloud network engineer",
+    "solutions architect network",
+    "infrastructure architect remote"
+  ],
+  "scoringModel": "claude-haiku-4-5-20251001",
+  "tailoringModel": "claude-sonnet-5"
+}
