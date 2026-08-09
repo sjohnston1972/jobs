@@ -49,8 +49,8 @@ Rules you must follow:
 6. red_flags is a short array of specific concerns. Each entry is a terse
    label of at most six words, not a sentence and not an explanation —
    "inside IR35", "office attendance required", "salary below level",
-   "12-month fixed term". The reasoning belongs in `reason`. Use an empty
-   array when there are none, and do not invent concerns.
+   "12-month fixed term". The reasoning belongs in the reason field. Use an
+   empty array when there are none, and do not invent concerns.
 
 Output a single JSON object and nothing else. No prose, no markdown fences.`;
 
