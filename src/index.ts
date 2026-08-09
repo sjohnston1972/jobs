@@ -25,7 +25,7 @@ import {
  * Bumped by hand whenever pipeline behaviour changes. /health reports it, so
  * "is the fix actually live?" is a question with an answer rather than a guess.
  */
-export const BUILD = 'v8-mobile';
+export const BUILD = 'v9-chip-overflow';
 
 const SCORING_CONCURRENCY = 3;
 /** Bounds the subrequest count: one detail call per title-matching Reed job. */

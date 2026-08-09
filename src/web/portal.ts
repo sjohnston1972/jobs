@@ -257,9 +257,17 @@ function renderUnit(job: ScoredJob, index: number, criteria: Criteria): string {
   }
   specs.push(`<span class="spec">${escapeHtml(job.source)}</span>`);
   specs.push(`<span class="spec">${escapeHtml(formatDate(job.posted_at))}</span>`);
-  for (const flag of job.red_flags) {
-    specs.push(`<span class="spec spec--flag">${escapeHtml(flag)}</span>`);
-  }
+
+  // Red flags come back as sentences, so they get a list of their own rather
+  // than sitting in the spec row as unbreakable chips.
+  const flags = job.red_flags.length
+    ? `<div class="flags">
+         <span class="flags__tag">Red flags</span>
+         <ul class="flags__list">${job.red_flags
+           .map((flag) => `<li>${escapeHtml(flag)}</li>`)
+           .join('')}</ul>
+       </div>`
+    : '';
 
   const capture = job.remote_evidence
     ? `<blockquote class="capture">
@@ -301,6 +309,7 @@ function renderUnit(job: ScoredJob, index: number, criteria: Criteria): string {
       <div class="specs">${specs.join('')}</div>
       ${capture}
       <p class="reason">${escapeHtml(job.reason ?? '')}</p>
+      ${flags}
     </div>
 
     <div class="actions">

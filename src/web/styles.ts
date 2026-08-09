@@ -353,6 +353,7 @@ a { color: var(--accent); text-decoration: none; }
   font-size: 14px;
   color: var(--dim);
   margin-top: 2px;
+  overflow-wrap: anywhere;
 }
 
 .specs {
@@ -371,7 +372,11 @@ a { color: var(--accent); text-decoration: none; }
   border: 1px solid var(--rule);
   border-radius: 2px;
   padding: 3px 7px;
-  white-space: nowrap;
+  /* Specs are short measured values, so they read best on one line — but a
+     chip must never be wider than its column, or it pushes the page sideways.
+     Wrapping is allowed as the escape hatch, not the normal case. */
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .spec--flag  { color: var(--sig-fail); border-color: color-mix(in srgb, var(--sig-fail) 40%, transparent); }
 .spec--good  { color: var(--sig-high); border-color: color-mix(in srgb, var(--sig-high) 40%, transparent); }
@@ -391,6 +396,7 @@ a { color: var(--accent); text-decoration: none; }
   font-size: 13.5px;
   line-height: 1.55;
   color: var(--text);
+  overflow-wrap: anywhere;
 }
 .capture--missing {
   border-left-color: var(--sig-fail);
@@ -412,7 +418,41 @@ a { color: var(--accent); text-decoration: none; }
   font-size: 14.5px;
   line-height: 1.55;
   color: var(--dim);
+  overflow-wrap: anywhere;
 }
+
+/* Red flags are prose the model wrote, not measured values, so they read as a
+   list next to the reason rather than as chips in the spec row. They were
+   sentences of 70+ characters inside a nowrap chip, which overflowed the
+   column on any phone. */
+
+.flags {
+  margin: 11px 0 0;
+  padding: 9px 12px;
+  background: var(--well);
+  border-left: 2px solid var(--sig-fail);
+  border-radius: 0 2px 2px 0;
+}
+
+.flags__tag {
+  display: block;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dimmer);
+  margin-bottom: 5px;
+}
+
+.flags__list {
+  margin: 0;
+  padding-left: 15px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--dim);
+}
+.flags__list li { overflow-wrap: anywhere; }
+.flags__list li + li { margin-top: 3px; }
 
 /* -- action cluster, right edge of the unit */
 
@@ -533,6 +573,7 @@ a { color: var(--accent); text-decoration: none; }
   left: 50%;
   bottom: 26px;
   transform: translate(-50%, 14px);
+  max-width: calc(100vw - 32px);
   background: var(--panel-hi);
   border: 1px solid var(--rule);
   border-left: 3px solid var(--sig-high);
@@ -566,6 +607,7 @@ a { color: var(--accent); text-decoration: none; }
   flex-wrap: wrap;
   gap: 18px;
   justify-content: space-between;
+  overflow-wrap: anywhere;
 }
 
 /* ---------------------------------------------------------- prose pages */
