@@ -127,4 +127,25 @@ describe('parseLinkedInAlert, awkward real-world blocks', () => {
     expect(first.employer).toBe('HM Revenue & Customs');
     expect(first.location).toBe('United Kingdom');
   });
+
+  it('exercises the overrun test when title is in the 66-71 character band', () => {
+    // Title is 67 characters: "Senior Enterprise Architect for Global Network Technology Developed"
+    // Next line first word is 4 characters: "Tech"
+    // Arithmetic: 67 + 1 + 4 = 72 (NOT > 72), so should NOT join.
+    // This test verifies the overrun mechanism is reached and correctly rejects the join.
+    const body = [
+      'Your job alert for Europe',
+      '',
+      'Senior Enterprise Architect for Global Network Technology Developed',
+      'Tech Innovations Ltd',
+      'London, United Kingdom',
+      'View job: https://www.linkedin.com/comm/jobs/view/4490000001/?trackingId=X',
+      '',
+    ].join('\n');
+
+    const [first] = parseLinkedInAlert(body, RECEIVED);
+    expect(first.title).toBe('Senior Enterprise Architect for Global Network Technology Developed');
+    expect(first.employer).toBe('Tech Innovations Ltd');
+    expect(first.location).toBe('London, United Kingdom');
+  });
 });
