@@ -487,14 +487,18 @@ export default {
         if (!viewer) return notAuthorised();
 
         const minRaw = url.searchParams.get('min');
+        const source = url.searchParams.get('source') ?? undefined;
         const filter = {
           minScore: minRaw !== null && minRaw !== '' ? Number(minRaw) : undefined,
           status: url.searchParams.get('status') ?? undefined,
-          source: url.searchParams.get('source') ?? undefined,
+          source,
           contract: url.searchParams.get('contract') ?? undefined,
           remote: url.searchParams.get('remote') ?? undefined,
           search: url.searchParams.get('q') ?? undefined,
           sort: (url.searchParams.get('sort') as 'score' | 'posted' | 'seen' | null) ?? undefined,
+          // Never-scored rows are listed only when the request says so, so a
+          // plain load of / is unchanged.
+          leads: db.wantsLeads(url.searchParams.get('leads'), source),
           limit: 200,
         };
 

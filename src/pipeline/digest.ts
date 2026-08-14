@@ -1,5 +1,5 @@
 import { signedUrl } from '../lib/sign';
-import type { Criteria, RunCounts, ScoredJob } from '../lib/types';
+import type { Criteria, JobRow, RunCounts, ScoredJob } from '../lib/types';
 
 const BAND = {
   high: { at: 75, ink: '#0F7A5A', chip: '#E3F5EE', label: 'strong' },
@@ -22,7 +22,8 @@ export function escapeHtml(input: string): string {
     .replace(/'/g, '&#39;');
 }
 
-export function formatSalary(job: ScoredJob): string {
+/** Only reads the columns that come from the jobs table, so a lead row fits too. */
+export function formatSalary(job: JobRow): string {
   const { salary_min: min, salary_max: max, salary_predicted: predicted } = job;
   if (!min && !max) return 'Salary not stated';
 

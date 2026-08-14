@@ -2,6 +2,7 @@ import type {
   ApplicationStatus,
   JobRow,
   NormalisedJob,
+  PortalJob,
   RunCounts,
   ScoreResult,
   ScoredJob,
@@ -213,15 +214,28 @@ export async function insertScore(
 
 // ---------------------------------------------------------------- reads
 
-const SCORED_SELECT = `
+function selectWith(scoresJoin: 'JOIN' | 'LEFT JOIN'): string {
+  return `
   SELECT j.*, s.score, s.remote_confidence, s.remote_evidence, s.ir35_signal,
          s.seniority_fit, s.reason, s.red_flags, s.scored_at,
          a.status, a.updated_at AS status_updated_at, a.notes
   FROM jobs j
-  JOIN scores s ON s.job_id = j.id
+  ${scoresJoin} scores s ON s.job_id = j.id
   LEFT JOIN applications a ON a.job_id = j.id`;
+}
 
-function toScoredJob(row: Record<string, unknown>): ScoredJob {
+/** The scored view. The inner join is what keeps unscored rows out of the digest. */
+const SCORED_SELECT = selectWith('JOIN');
+
+/**
+ * The same shape with the score optional, so postings from UNSCORED_SOURCES —
+ * which by design never get a scores row — can be listed. Only getPortalJobs
+ * uses it, and only when the request explicitly asks for leads. The digest
+ * queries stay on SCORED_SELECT and must.
+ */
+const LEADS_SELECT = selectWith('LEFT JOIN');
+
+function toPortalJob(row: Record<string, unknown>): PortalJob {
   let flags: string[] = [];
   try {
     const parsed = JSON.parse((row.red_flags as string) || '[]');
@@ -229,7 +243,18 @@ function toScoredJob(row: Record<string, unknown>): ScoredJob {
   } catch {
     // A malformed array is not worth failing a page render over.
   }
-  return { ...(row as unknown as ScoredJob), red_flags: flags };
+  return {
+    ...(row as unknown as PortalJob),
+    red_flags: flags,
+    // A leads row has no scores row at all. Left as null so the UI can say so
+    // rather than printing a 0, which would read as "assessed and rejected".
+    score: row.score === null || row.score === undefined ? null : Number(row.score),
+  };
+}
+
+/** Rows from a query that inner-joins scores always carry one. */
+function toScoredJob(row: Record<string, unknown>): ScoredJob {
+  return toPortalJob(row) as ScoredJob;
 }
 
 /** Everything scored during this run at or above the digest threshold. */
@@ -266,13 +291,26 @@ export interface PortalFilter {
   remote?: string;
   search?: string;
   sort?: 'score' | 'posted' | 'seen';
+  /**
+   * Include postings that have never been scored. Off unless the request asks
+   * for it, so the default portal view is exactly what it was before leads
+   * existed.
+   */
+  leads?: boolean;
   limit?: number;
+}
+
+/** True when a request has explicitly asked to see rows that cannot be scored. */
+export function wantsLeads(leadsParam: string | null, source: string | undefined): boolean {
+  // A ?source= naming an unscored source is as explicit an ask as ?leads=1,
+  // and without this that filter would return an empty page every time.
+  return leadsParam === '1' || (source !== undefined && UNSCORED_SOURCES.includes(source));
 }
 
 export async function getPortalJobs(
   db: D1Database,
   filter: PortalFilter,
-): Promise<ScoredJob[]> {
+): Promise<PortalJob[]> {
   const where: string[] = [];
   const binds: unknown[] = [];
 
@@ -314,13 +352,13 @@ export async function getPortalJobs(
         : 's.score DESC, COALESCE(j.posted_at, j.first_seen_at) DESC';
 
   const sql =
-    SCORED_SELECT +
+    (filter.leads ? LEADS_SELECT : SCORED_SELECT) +
     (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
     ` ORDER BY ${order} LIMIT ?`;
   binds.push(filter.limit ?? 200);
 
   const { results } = await db.prepare(sql).bind(...binds).all<Record<string, unknown>>();
-  return (results ?? []).map(toScoredJob);
+  return (results ?? []).map(toPortalJob);
 }
 
 export async function getScoredJob(db: D1Database, id: string): Promise<ScoredJob | null> {

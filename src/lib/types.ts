@@ -51,14 +51,16 @@ export const APPLICATION_STATUSES: ApplicationStatus[] = [
  * Sources whose alert emails carry no description. A posting with no text
  * about working location scores "low" remote confidence by scoring rule 2,
  * which scoreJob caps at 39 — below minScoreForDigest. Scoring them cannot
- * ever surface one; it only spends. They are collected as leads. Do not
- * remove this as dead weight.
+ * ever surface one; it only spends. They are collected as leads and are
+ * reachable in the portal's leads view (`/?leads=1`). Do not remove this as
+ * dead weight.
  *
  * Declared here rather than at any one use site because several unrelated
  * places need to agree on it: the prefilter drops them, getUnscoredJobs
  * excludes them in SQL so its LIMIT is not spent on rows that can never be
- * scored, and dedupe refuses to let one suppress a board posting it can never
- * replace.
+ * scored, dedupe refuses to let one suppress a board posting it can never
+ * replace, and the portal decides from it whether a request is asking for
+ * leads.
  */
 export const UNSCORED_SOURCES: readonly string[] = ['linkedin'];
 
@@ -116,6 +118,17 @@ export interface ScoredJob extends JobRow {
   status: ApplicationStatus | null;
   status_updated_at: string | null;
   notes: string | null;
+}
+
+/**
+ * A row as the portal lists it. Identical to ScoredJob except that the score
+ * and everything joined from it may be absent, because the portal's leads view
+ * lists postings from UNSCORED_SOURCES that will never have a scores row.
+ * ScoredJob is assignable to this, so the default (scored) view is unaffected.
+ */
+export interface PortalJob extends Omit<ScoredJob, 'score' | 'scored_at'> {
+  score: number | null;
+  scored_at: string | null;
 }
 
 export interface RunCounts {

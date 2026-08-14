@@ -1,6 +1,6 @@
 import type { PortalFilter, PortalStats } from '../lib/db';
 import { escapeHtml, formatDate, formatSalary } from '../pipeline/digest';
-import type { Criteria, ScoredJob } from '../lib/types';
+import type { Criteria, PortalJob, ScoredJob } from '../lib/types';
 import { STYLES } from './styles';
 
 const FONTS =
@@ -38,9 +38,12 @@ ${extraScript ? `<script>${extraScript}</script>` : ''}
 
 // ------------------------------------------------------------------ helpers
 
-type Band = 'high' | 'mid' | 'low' | 'fail';
+type Band = 'high' | 'mid' | 'low' | 'fail' | 'lead';
 
-function bandOf(score: number): { key: Band; colour: string; label: string; lit: number } {
+function bandOf(score: number | null): { key: Band; colour: string; label: string; lit: number } {
+  // Never scored, by design — not scored badly. Rendered without a number at
+  // all, because a 0 here would read as "assessed and rejected".
+  if (score === null) return { key: 'lead', colour: 'var(--dim)', label: 'lead', lit: 0 };
   if (score < 0) return { key: 'fail', colour: 'var(--sig-fail)', label: 'error', lit: 0 };
   if (score >= 75) return { key: 'high', colour: 'var(--sig-high)', label: 'strong', lit: 3 };
   if (score >= 60) return { key: 'mid', colour: 'var(--sig-mid)', label: 'read', lit: 2 };
@@ -61,6 +64,9 @@ function queryFor(current: PortalFilter, patch: Record<string, string | undefine
     remote: current.remote,
     q: current.search,
     sort: current.sort,
+    // Carried as the string '1' or dropped entirely; a literal `false` would
+    // otherwise be serialised as "leads=false" and read back as truthy-looking.
+    leads: current.leads ? '1' : undefined,
     ...patch,
   };
   for (const [key, value] of Object.entries(merged)) {
@@ -82,7 +88,7 @@ function chip(
 // ------------------------------------------------------------------ portal
 
 export function renderPortal(
-  jobs: ScoredJob[],
+  jobs: PortalJob[],
   stats: PortalStats,
   filter: PortalFilter,
   criteria: Criteria,
@@ -114,6 +120,14 @@ export function renderPortal(
   const staleNotice = stale
     ? `<div class="notice">The last run finished ${hoursSince} hours ago. The daily trigger
        fires at 06:00 UTC — if that is more than a day, check <a href="/health">/health</a>.</div>`
+    : '';
+
+  // Only rendered when the request asked for leads, so the default view is
+  // byte-for-byte what it was before leads existed.
+  const leadsNotice = filter.leads
+    ? `<div class="notice">Showing leads as well as scored postings. LinkedIn alert emails
+       carry no description, so those postings are collected but never scored — they show a
+       dash instead of a score. <a href="${escapeHtml(queryFor(filter, { leads: undefined, source: undefined }))}">Scored only</a>.</div>`
     : '';
 
   const scoreChips = [
@@ -171,7 +185,7 @@ export function renderPortal(
   <header class="masthead">
     <div class="brand">
       <h1 class="brand__name">Job Monitor</h1>
-      <div class="brand__sub">Reed + Adzuna &nbsp;·&nbsp; fully remote only &nbsp;·&nbsp;
+      <div class="brand__sub">Reed + Adzuna + Indeed + LinkedIn &nbsp;·&nbsp; fully remote only &nbsp;·&nbsp;
         last run ${hoursSince === null ? 'never' : `${hoursSince}h ago`}</div>
     </div>
     <div class="readouts">${readouts}</div>
@@ -184,6 +198,8 @@ export function renderPortal(
     ${filter.status ? `<input type="hidden" name="status" value="${escapeHtml(filter.status)}">` : ''}
     ${filter.remote ? `<input type="hidden" name="remote" value="${escapeHtml(filter.remote)}">` : ''}
     ${filter.sort ? `<input type="hidden" name="sort" value="${escapeHtml(filter.sort)}">` : ''}
+    ${filter.leads ? `<input type="hidden" name="leads" value="1">` : ''}
+    ${filter.source ? `<input type="hidden" name="source" value="${escapeHtml(filter.source)}">` : ''}
     <button class="btn" type="submit">Search</button>
 
     <input class="filters__check" type="checkbox" id="filters-toggle"${activeFilters ? ' checked' : ''}>
@@ -200,6 +216,7 @@ export function renderPortal(
   </form>
 
   ${staleNotice}
+  ${leadsNotice}
   ${stack}
 
   <footer class="footer">
@@ -227,8 +244,9 @@ function renderEmpty(filter: PortalFilter, criteria: Criteria): string {
   </div>`;
 }
 
-function renderUnit(job: ScoredJob, index: number, criteria: Criteria): string {
+function renderUnit(job: PortalJob, index: number, criteria: Criteria): string {
   const b = bandOf(job.score);
+  const unscored = job.score === null;
   const lit = confidenceLit(job.remote_confidence);
 
   const meter = [0, 1, 2]
@@ -273,7 +291,13 @@ function renderUnit(job: ScoredJob, index: number, criteria: Criteria): string {
     ? `<blockquote class="capture">
          <span class="capture__tag">Remote evidence</span>“${escapeHtml(job.remote_evidence)}”
        </blockquote>`
-    : `<div class="capture capture--missing">
+    : unscored
+      ? `<div class="capture capture--missing">
+           <span class="capture__tag">Not scored</span>
+           A ${escapeHtml(job.source)} alert email carries no description, so there is nothing
+           for the scorer to read. Collected as a lead — open the posting to judge it yourself.
+         </div>`
+      : `<div class="capture capture--missing">
          <span class="capture__tag">Remote evidence</span>
          Nothing in the description was quoted. Treat the remote claim as unverified.
        </div>`;
@@ -287,7 +311,7 @@ function renderUnit(job: ScoredJob, index: number, criteria: Criteria): string {
     .join('');
 
   const tailorButton =
-    job.score >= criteria.tailorThreshold
+    job.score !== null && job.score >= criteria.tailorThreshold
       ? `<button class="btn" type="button" data-tailor="${escapeHtml(job.id)}">Tailor CV</button>`
       : '';
 
@@ -295,7 +319,7 @@ function renderUnit(job: ScoredJob, index: number, criteria: Criteria): string {
   <div class="unit__face">
 
     <div class="well">
-      <div class="well__score">${job.score < 0 ? '!!' : job.score}</div>
+      <div class="well__score">${unscored ? '—' : job.score! < 0 ? '!!' : job.score}</div>
       <div class="well__band">${escapeHtml(b.label)}</div>
       <div class="meter" title="Remote confidence: ${escapeHtml(job.remote_confidence ?? 'unknown')}"
            role="img" aria-label="Remote confidence ${escapeHtml(job.remote_confidence ?? 'unknown')}">${meter}</div>
@@ -327,7 +351,7 @@ function renderUnit(job: ScoredJob, index: number, criteria: Criteria): string {
     <div class="drawer__meta">
       <span>${escapeHtml(job.id)}</span>
       <span>first seen ${escapeHtml(formatDate(job.first_seen_at))}</span>
-      <span>scored ${escapeHtml(formatDate(job.scored_at))}</span>
+      <span>${unscored ? 'never scored' : `scored ${escapeHtml(formatDate(job.scored_at))}`}</span>
       ${job.status ? `<span>status ${escapeHtml(job.status)} · ${escapeHtml(formatDate(job.status_updated_at))}</span>` : ''}
     </div>
   </div>
