@@ -50,7 +50,7 @@ export const APPLICATION_STATUSES: ApplicationStatus[] = [
 /** A posting after normalisation, before it reaches the database. */
 export interface NormalisedJob {
   id: string; // "reed:40227781"
-  source: 'reed' | 'adzuna';
+  source: 'reed' | 'adzuna' | 'indeed' | 'linkedin';
   source_id: string;
   title: string;
   employer: string | null;
@@ -121,6 +121,12 @@ export interface Criteria {
   lookbackDays: number;
   contractTypes: string[];
   seedQueries: string[];
+  /** Gmail search that selects the alert emails. Sender-based, so no Gmail-side filter is needed. */
+  gmailQuery: string;
+  /** Bounds the Gmail message fetches per run. */
+  maxEmailsPerRun: number;
+  /** Bounds how many email-sourced postings may reach the scorer in one run. */
+  maxEmailJobsPerRun: number;
   scoringModel: string;
   tailoringModel: string;
 }

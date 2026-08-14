@@ -51,6 +51,9 @@
     "solutions architect network",
     "infrastructure architect remote"
   ],
+  "gmailQuery": "newer_than:2d from:(donotreply@jobalert.indeed.com OR jobalerts-noreply@linkedin.com OR jobs-noreply@linkedin.com)",
+  "maxEmailsPerRun": 40,
+  "maxEmailJobsPerRun": 15,
   "scoringModel": "claude-haiku-4-5-20251001",
   "tailoringModel": "claude-sonnet-5"
 }
