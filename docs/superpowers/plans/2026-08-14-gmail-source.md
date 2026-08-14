@@ -1211,6 +1211,44 @@ git commit -m "Gmail source verified against live mail"
 
 ---
 
+## Outstanding after implementation (2026-08-14)
+
+The branch `gmail-source` implements every task. Two things remain.
+
+**1. Deploy and live verification — steps 5-11 above were never run.** They
+publish to production and need a browser session behind Cloudflare Access, so
+they belong to the repository owner. Until they run, neither parser has ever
+processed a real message: the fixtures are authored reconstructions of the
+email templates, not captures. `/gmail/preview?days=3` is the first thing to
+run after deploying, and the real bodies it reveals should replace the authored
+fixtures.
+
+**2. Findings deliberately left unfixed**, each judged non-blocking by review:
+
+- `test/global.d.ts` — the `declare module 'node:fs'` shim is program-global
+  rather than test-scoped, so it type-permits a `node:fs` import from `src/`
+  too. Wrangler still fails to resolve it at build time without
+  `nodejs_compat`, so the backstop is real. Contain with a test-only tsconfig
+  if the pattern recurs.
+- `/gmail/preview?days=` has no upper bound. Access-gated and read-only; the
+  message cap is `maxEmailsPerRun` regardless, so the worst case is a Gmail 400.
+- `EMAIL_SOURCES` still contains `'linkedin'`, which is unreachable — LinkedIn
+  is filtered out in SQL and again in memory before that set is consulted. Kept
+  as defence in depth so widening either set does not silently break the other.
+- `joinWrappedLines` shortens blocks, so `urlIndex < 2` can now reject a block
+  it previously accepted — a wrapped title with no employer, badge, salary or
+  age line. Indeed always emits an age line, so this is unreachable in
+  practice, but it is a drop path with no counter.
+- The three `getUnscoredJobs`/leads SQL tests assert on substrings and
+  membership, so a future change to **bind order** would not be caught.
+
+**Two consequences of the leads view worth knowing:**
+
+- It is reachable only by URL — `?leads=1`, or `?source=linkedin`. Nothing in
+  the portal links to it.
+- A lead marked *applied* will never appear in the weekly summary, because
+  `getActiveApplications` inner-joins `scores` and leads have no score row.
+
 ## Known limitations, recorded deliberately
 
 - **LinkedIn postings stay unscored forever** and therefore keep reappearing in `getUnscoredJobs` until they age past `lookbackDays + 3`. That query has a limit of 500, so a heavy LinkedIn week consumes some of that headroom. Harmless at current volumes (roughly 15 a day against a 500 limit) and cheap to filter, but if the backlog ever crowds out genuine unscored jobs the fix is to write a marker row into `scores` rather than to start scoring them.
