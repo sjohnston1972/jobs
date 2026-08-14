@@ -11,7 +11,7 @@ import { fetchReed, fetchReedDescription } from './sources/reed';
 import { fetchGmail } from './sources/gmail';
 import { dedupe } from './pipeline/dedupe';
 import { buildDigest, buildWeeklySummary, escapeHtml } from './pipeline/digest';
-import { applyBodyGate, applyTitleGate } from './pipeline/prefilter';
+import { applyBodyGate, applyTitleGate, gateLeadsAtIngest } from './pipeline/prefilter';
 import { scoreJob } from './pipeline/score';
 import { tailorForJob, tailoredEmail } from './pipeline/tailor';
 import {
@@ -26,7 +26,7 @@ import {
  * Bumped by hand whenever pipeline behaviour changes. /health reports it, so
  * "is the fix actually live?" is a question with an answer rather than a guess.
  */
-export const BUILD = 'v10-gmail-source';
+export const BUILD = 'v11-lead-title-gate';
 
 const SCORING_CONCURRENCY = 3;
 /** Bounds the subrequest count: one detail call per title-matching Reed job. */
@@ -82,13 +82,21 @@ export async function runPipeline(env: Env): Promise<RunCounts & { errors: strin
   }
   counts.fetched = collected.length;
 
+  // Leads (postings from UNSCORED_SOURCES) are gated on title here, before
+  // storage — see the comment on gateLeadsAtIngest for why scoreable
+  // postings are not gated the same way. counts.fetched above stays the
+  // honest count of what the sources returned; this only decides what gets
+  // past dedupe and into the database.
+  const gated = gateLeadsAtIngest(collected, criteria, new Set(UNSCORED_SOURCES));
+  console.log(`lead-gate: ${collected.length} in, ${gated.dropped} leads dropped on title`);
+
   // -- Stages 2 and 3: normalise happened in the collectors; dedupe and store.
   try {
-    const result = await dedupe(env.DB, collected);
+    const result = await dedupe(env.DB, gated.kept);
     await db.insertJobs(env.DB, result.fresh, runStartedAt);
     counts.new_jobs = result.fresh.length;
     console.log(
-      `dedupe: ${collected.length} in, ${result.fresh.length} fresh`,
+      `dedupe: ${gated.kept.length} in, ${result.fresh.length} fresh`,
       JSON.stringify({
         by_source_id: result.bySourceId,
         by_content_hash: result.byContentHash,

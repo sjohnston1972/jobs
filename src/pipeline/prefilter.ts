@@ -82,6 +82,36 @@ export function applyTitleGate<T extends Filterable>(
   return { passed: runGate(jobs, criteria, titleGate, counts), counts };
 }
 
+/**
+ * Gates leads at ingest, before they are ever stored.
+ *
+ * Scoreable postings (Reed, Adzuna, Indeed) are deliberately NOT gated here.
+ * getUnscoredJobs reconsiders the stored backlog on every run, so widening
+ * titleAllow later lets a previously-rejected board posting resurface from
+ * storage — gating those at ingest would delete that second chance. A lead
+ * from an unscored source has no second chance: it is never scored, so a
+ * title that fails today fails forever, and a row that can only ever be
+ * browsed, never scored, buys nothing by being stored anyway. Hence the
+ * asymmetry: gate leads now, leave scoreable postings to the stage-4 gate.
+ */
+export function gateLeadsAtIngest<T extends Filterable & { source: string }>(
+  jobs: T[],
+  criteria: Criteria,
+  unscoredSources: Set<string>,
+): { kept: T[]; dropped: number } {
+  const kept: T[] = [];
+  let dropped = 0;
+  for (const job of jobs) {
+    if (!unscoredSources.has(job.source)) {
+      kept.push(job);
+      continue;
+    }
+    if (titleGate(job, criteria).pass) kept.push(job);
+    else dropped++;
+  }
+  return { kept, dropped };
+}
+
 export function applyBodyGate<T extends Filterable>(
   jobs: T[],
   criteria: Criteria,
