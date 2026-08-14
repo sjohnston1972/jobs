@@ -69,9 +69,14 @@ export async function runPipeline(env: Env): Promise<RunCounts & { errors: strin
     }
   }
 
-  // Alert emails, once per run rather than once per seed query.
+  // Alert emails, once per run rather than once per seed query. The throw is
+  // total failure (no token, list call dead); the returned errors are the
+  // partial ones — per-message fetch failures and a parser that came back
+  // empty — which keep the run going but must still reach runs.errors.
   try {
-    collected.push(...(await fetchGmail(env, criteria)));
+    const gmail = await fetchGmail(env, criteria);
+    collected.push(...gmail.jobs);
+    errors.push(...gmail.errors);
   } catch (err) {
     errors.push(`gmail: ${String(err)}`);
   }
@@ -440,7 +445,7 @@ export default {
         const window = Number.isFinite(days) && days > 0 ? Math.floor(days) : 2;
         const query = criteria.gmailQuery.replace(/newer_than:\d+d/, `newer_than:${window}d`);
 
-        const jobs = await fetchGmail(env, criteria, query);
+        const { jobs, errors: gmailErrors } = await fetchGmail(env, criteria, query);
         const rows = jobs
           .map(
             (j) => `<tr>
@@ -462,6 +467,9 @@ export default {
                <p style="color:var(--dim)">${jobs.length} postings parsed from the last
                  ${window} day(s). Nothing was written to the database.</p>
                <p style="color:var(--dim)"><code>${escapeHtml(query)}</code></p>
+               ${gmailErrors
+                 .map((e) => `<p style="color:var(--sig-fail)">${escapeHtml(e)}</p>`)
+                 .join('')}
                <table style="width:100%;border-collapse:collapse;font-size:13px">
                  <tr style="text-align:left">
                    <th>source</th><th>title</th><th>employer</th>

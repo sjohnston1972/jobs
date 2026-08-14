@@ -5,6 +5,17 @@ import { parseIndeedAlert } from './indeed';
 import { parseLinkedInAlert } from './linkedin';
 import type { RawPosting } from './types';
 
+export interface GmailFetchResult {
+  jobs: NormalisedJob[];
+  /**
+   * Anything the run record should carry. Returned rather than thrown because
+   * a partial failure must not abandon the postings that did parse — but it
+   * must also not vanish into a console line, which is what left runs.errors
+   * NULL and /health reporting "ok" through forty silent 429s.
+   */
+  errors: string[];
+}
+
 /**
  * Job alert emails as a third source.
  *
@@ -19,17 +30,20 @@ export async function fetchGmail(
   env: Env,
   criteria: Criteria,
   queryOverride?: string,
-): Promise<NormalisedJob[]> {
+): Promise<GmailFetchResult> {
   const token = await getAccessToken(env);
   const query = queryOverride ?? criteria.gmailQuery;
   const ids = await listMessageIds(token, query, criteria.maxEmailsPerRun);
 
   const postings: RawPosting[] = [];
   let sponsored = 0;
+  let noKey = 0;
   let indeedMails = 0;
+  let indeedPostings = 0;
   let linkedinMails = 0;
   let unparsed = 0;
   let fetchFailed = 0;
+  let firstFailure = '';
 
   for (const id of ids) {
     try {
@@ -44,14 +58,17 @@ export async function fetchGmail(
         indeedMails++;
         const result = parseIndeedAlert(message.plainText, message.receivedAt);
         postings.push(...result.postings);
+        indeedPostings += result.postings.length;
         sponsored += result.skippedSponsored;
+        noKey += result.skippedNoKey;
       } else if (from.includes('linkedin.com')) {
         linkedinMails++;
         postings.push(...parseLinkedInAlert(message.plainText, message.receivedAt));
       }
       // Anything else matched the query but has no parser; ignored silently.
-    } catch {
+    } catch (err) {
       fetchFailed++;
+      if (!firstFailure) firstFailure = String(err).slice(0, 200);
       continue;
     }
   }
@@ -59,10 +76,28 @@ export async function fetchGmail(
   console.log(
     'gmail: ' +
       `${ids.length} messages (${indeedMails} indeed, ${linkedinMails} linkedin), ` +
-      `${postings.length} postings, ${sponsored} sponsored skipped, ${unparsed} without a text part, ${fetchFailed} fetch failed`,
+      `${postings.length} postings, ${sponsored} sponsored skipped, ${noKey} organic without a job key, ` +
+      `${unparsed} without a text part, ${fetchFailed} fetch failed`,
   );
 
-  return Promise.all(postings.map(toNormalisedJob));
+  // Two failures the run record has to carry. Both leave the run alive: a bad
+  // day for one source must never suppress the digest.
+  const errors: string[] = [];
+  if (fetchFailed) {
+    errors.push(
+      `gmail: ${fetchFailed} of ${ids.length} messages could not be fetched (first: ${firstFailure})`,
+    );
+  }
+  if (indeedMails && !indeedPostings) {
+    // The silent failure mode the design named: no exception, no postings, a
+    // digest that just gets quieter. Only raised when mail actually arrived.
+    errors.push(
+      `gmail: ${indeedMails} Indeed alert(s) fetched but no postings parsed ` +
+        `(${sponsored} sponsored, ${noKey} organic without a job key) — the template may have changed`,
+    );
+  }
+
+  return { jobs: await Promise.all(postings.map(toNormalisedJob)), errors };
 }
 
 function toNormalisedJob(posting: RawPosting): Promise<NormalisedJob> {
