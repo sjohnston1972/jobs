@@ -8,6 +8,7 @@ import type { Env, JobRow, NormalisedJob, RunCounts, ApplicationStatus } from '.
 import { APPLICATION_STATUSES } from './lib/types';
 import { fetchAdzuna } from './sources/adzuna';
 import { fetchReed, fetchReedDescription } from './sources/reed';
+import { fetchGmail } from './sources/gmail';
 import { dedupe } from './pipeline/dedupe';
 import { buildDigest, buildWeeklySummary } from './pipeline/digest';
 import { applyBodyGate, applyTitleGate } from './pipeline/prefilter';
@@ -30,6 +31,18 @@ export const BUILD = 'v9-chip-overflow';
 const SCORING_CONCURRENCY = 3;
 /** Bounds the subrequest count: one detail call per title-matching Reed job. */
 const MAX_ENRICH_PER_RUN = 60;
+
+/**
+ * Sources whose alert emails carry no description. A posting with no text
+ * about working location scores "low" remote confidence by scoring rule 2,
+ * which scoreJob caps at 39 — below minScoreForDigest. Scoring them cannot
+ * ever surface one; it only spends. They are collected as leads for the
+ * portal instead. Do not remove this as dead weight.
+ */
+const UNSCORED_SOURCES = new Set(['linkedin']);
+
+/** Email-sourced postings share a budget of their own; see below. */
+const EMAIL_SOURCES = new Set(['indeed', 'linkedin']);
 
 // =====================================================================
 // Pipeline
@@ -56,6 +69,13 @@ export async function runPipeline(env: Env): Promise<RunCounts & { errors: strin
     } catch (err) {
       errors.push(String(err));
     }
+  }
+
+  // Alert emails, once per run rather than once per seed query.
+  try {
+    collected.push(...(await fetchGmail(env, criteria)));
+  } catch (err) {
+    errors.push(`gmail: ${String(err)}`);
   }
   counts.fetched = collected.length;
 
@@ -87,7 +107,9 @@ export async function runPipeline(env: Env): Promise<RunCounts & { errors: strin
   let toScore: JobRow[] = [];
   try {
     const unscored = await db.getUnscoredJobs(env.DB, db.daysAgoIso(criteria.lookbackDays + 3));
-    const titled = applyTitleGate(unscored, criteria);
+    // Dropped before the gates rather than after, so they cost nothing.
+    const scoreableSources = unscored.filter((j) => !UNSCORED_SOURCES.has(j.source));
+    const titled = applyTitleGate(scoreableSources, criteria);
 
     // -- Stage 4b: enrich. Only Reed exposes a detail endpoint; Adzuna excerpts
     //    stay truncated and are deferred to the scorer by the body gate.
@@ -121,7 +143,16 @@ export async function runPipeline(env: Env): Promise<RunCounts & { errors: strin
         `${enriched} enriched, ${bodied.passed.length} passed body`,
       JSON.stringify({ ...titled.counts, ...bodied.counts }),
     );
-    toScore = bodied.passed.slice(0, criteria.maxScoredPerRun);
+    // Email postings get a budget of their own before the global cap, or one
+    // noisy Indeed morning consumes the whole scoring allowance and crowds out
+    // Reed and Adzuna. Boards come first because they carry full descriptions
+    // and score better; anything squeezed out is not lost, since getUnscoredJobs
+    // reconsiders the backlog on the next run.
+    const boardJobs = bodied.passed.filter((j) => !EMAIL_SOURCES.has(j.source));
+    const emailJobs = bodied.passed
+      .filter((j) => EMAIL_SOURCES.has(j.source))
+      .slice(0, criteria.maxEmailJobsPerRun);
+    toScore = [...boardJobs, ...emailJobs].slice(0, criteria.maxScoredPerRun);
   } catch (err) {
     errors.push(`prefilter: ${String(err)}`);
   }
