@@ -122,8 +122,8 @@ export function renderPortal(
        fires at 06:00 UTC — if that is more than a day, check <a href="/health">/health</a>.</div>`
     : '';
 
-  // Only rendered when the request asked for leads, so the default view is
-  // byte-for-byte what it was before leads existed.
+  // Only rendered when the request asked for leads. Nothing on the default
+  // view changes: no notice, no extra control, and the same rows as before.
   const leadsNotice = filter.leads
     ? `<div class="notice">Showing leads as well as scored postings. LinkedIn alert emails
        carry no description, so those postings are collected but never scored — they show a
