@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseLinkedInAlert } from '../src/sources/gmail/linkedin';
 
 const BODY = readFileSync(new URL('./fixtures/linkedin-alert.txt', import.meta.url), 'utf8');
+const WRAPPED = readFileSync(new URL('./fixtures/linkedin-wrapped.txt', import.meta.url), 'utf8');
 const RECEIVED = new Date('2026-08-13T09:47:36Z');
 
 describe('parseLinkedInAlert', () => {
@@ -52,5 +53,58 @@ describe('parseLinkedInAlert', () => {
 
   it('returns nothing for an email with no postings', () => {
     expect(parseLinkedInAlert('Your job alert for Europe\n\nNo new jobs.\n', RECEIVED)).toEqual([]);
+  });
+});
+
+describe('parseLinkedInAlert, awkward real-world blocks', () => {
+  const parsed = () => parseLinkedInAlert(WRAPPED, RECEIVED);
+
+  it('finds both postings when the rule between them is too short to split on', () => {
+    // The rule length used to be load-bearing: only the first link in a block
+    // was read, so the second posting vanished with no counter at all.
+    const postings = parsed();
+    expect(postings).toHaveLength(2);
+    expect(postings.map((p) => p.sourceId)).toEqual(['4460000001', '4460000002']);
+  });
+
+  it('rejoins a title hard-wrapped across two lines', () => {
+    const [first] = parsed();
+    expect(first.title).toBe(
+      'Senior Enterprise Solutions Architect for Global Network and Cloud Transformation',
+    );
+    expect(first.employer).toBe('HM Revenue & Customs');
+    expect(first.location).toBe('United Kingdom');
+  });
+
+  it('follows a "View job" url that wrapped onto the next line', () => {
+    const [, second] = parsed();
+    expect(second.sourceId).toBe('4460000002');
+    expect(second.url).toBe('https://www.linkedin.com/jobs/view/4460000002/');
+    expect(second.title).toBe('Principal Network Architect');
+    expect(second.employer).toBe('Ofgem');
+    expect(second.location).toBe('England, United Kingdom');
+  });
+
+  it('finds two postings that share one paragraph with no blank line between', () => {
+    const body = [
+      'Your job alert for Europe',
+      '',
+      'Network Architect',
+      'Ofgem',
+      'England, United Kingdom',
+      'View job: https://www.linkedin.com/comm/jobs/view/4470000001/?trackingId=X',
+      '-----',
+      'Security Architect',
+      'UK Ministry of Defence',
+      'Matlock',
+      'View job: https://www.linkedin.com/comm/jobs/view/4470000002/?trackingId=X',
+      '',
+    ].join('\n');
+
+    const postings = parseLinkedInAlert(body, RECEIVED);
+    expect(postings.map((p) => [p.sourceId, p.title, p.employer, p.location])).toEqual([
+      ['4470000001', 'Network Architect', 'Ofgem', 'England, United Kingdom'],
+      ['4470000002', 'Security Architect', 'UK Ministry of Defence', 'Matlock'],
+    ]);
   });
 });
