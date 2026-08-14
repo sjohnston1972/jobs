@@ -29,31 +29,37 @@ export async function fetchGmail(
   let indeedMails = 0;
   let linkedinMails = 0;
   let unparsed = 0;
+  let fetchFailed = 0;
 
   for (const id of ids) {
-    const message = await getMessage(token, id);
-    if (!message.plainText) {
-      unparsed++;
+    try {
+      const message = await getMessage(token, id);
+      if (!message.plainText) {
+        unparsed++;
+        continue;
+      }
+      const from = message.from.toLowerCase();
+
+      if (from.includes('jobalert.indeed.com')) {
+        indeedMails++;
+        const result = parseIndeedAlert(message.plainText, message.receivedAt);
+        postings.push(...result.postings);
+        sponsored += result.skippedSponsored;
+      } else if (from.includes('linkedin.com')) {
+        linkedinMails++;
+        postings.push(...parseLinkedInAlert(message.plainText, message.receivedAt));
+      }
+      // Anything else matched the query but has no parser; ignored silently.
+    } catch {
+      fetchFailed++;
       continue;
     }
-    const from = message.from.toLowerCase();
-
-    if (from.includes('jobalert.indeed.com')) {
-      indeedMails++;
-      const result = parseIndeedAlert(message.plainText, message.receivedAt);
-      postings.push(...result.postings);
-      sponsored += result.skippedSponsored;
-    } else if (from.includes('linkedin.com')) {
-      linkedinMails++;
-      postings.push(...parseLinkedInAlert(message.plainText, message.receivedAt));
-    }
-    // Anything else matched the query but has no parser; ignored silently.
   }
 
   console.log(
     'gmail: ' +
       `${ids.length} messages (${indeedMails} indeed, ${linkedinMails} linkedin), ` +
-      `${postings.length} postings, ${sponsored} sponsored skipped, ${unparsed} without a text part`,
+      `${postings.length} postings, ${sponsored} sponsored skipped, ${unparsed} without a text part, ${fetchFailed} fetch failed`,
   );
 
   return Promise.all(postings.map(toNormalisedJob));
