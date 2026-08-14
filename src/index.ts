@@ -10,7 +10,7 @@ import { fetchAdzuna } from './sources/adzuna';
 import { fetchReed, fetchReedDescription } from './sources/reed';
 import { fetchGmail } from './sources/gmail';
 import { dedupe } from './pipeline/dedupe';
-import { buildDigest, buildWeeklySummary } from './pipeline/digest';
+import { buildDigest, buildWeeklySummary, escapeHtml } from './pipeline/digest';
 import { applyBodyGate, applyTitleGate } from './pipeline/prefilter';
 import { scoreJob } from './pipeline/score';
 import { tailorForJob, tailoredEmail } from './pipeline/tailor';
@@ -26,7 +26,7 @@ import {
  * Bumped by hand whenever pipeline behaviour changes. /health reports it, so
  * "is the fix actually live?" is a question with an answer rather than a guess.
  */
-export const BUILD = 'v9-chip-overflow';
+export const BUILD = 'v10-gmail-source';
 
 const SCORING_CONCURRENCY = 3;
 /** Bounds the subrequest count: one detail call per title-matching Reed job. */
@@ -430,6 +430,48 @@ export default {
         if (!viewer) return json({ error: 'not authorised' }, 403);
         await runWeeklySummary(env);
         return json({ ok: true });
+      }
+
+      // Renders what the alert parsers make of recent mail without inserting
+      // anything. The check to run when a parser has gone quiet.
+      if (path === '/gmail/preview') {
+        if (!viewer) return json({ error: 'not authorised' }, 403);
+        const days = Number(url.searchParams.get('days') ?? 2);
+        const window = Number.isFinite(days) && days > 0 ? Math.floor(days) : 2;
+        const query = criteria.gmailQuery.replace(/newer_than:\d+d/, `newer_than:${window}d`);
+
+        const jobs = await fetchGmail(env, criteria, query);
+        const rows = jobs
+          .map(
+            (j) => `<tr>
+              <td>${escapeHtml(j.source)}</td>
+              <td><a href="${escapeHtml(j.url)}">${escapeHtml(j.title)}</a></td>
+              <td>${escapeHtml(j.employer ?? '—')}</td>
+              <td>${escapeHtml(j.location_raw ?? '—')}</td>
+              <td>${j.salary_min ?? '—'}${j.salary_max ? `–${j.salary_max}` : ''} ${escapeHtml(j.salary_period)}</td>
+              <td>${escapeHtml((j.description ?? '').slice(0, 160))}</td>
+            </tr>`,
+          )
+          .join('');
+
+        return html(
+          layout(
+            'Gmail preview — Job Monitor',
+            `<div class="prose">
+               <h1>Gmail preview</h1>
+               <p style="color:var(--dim)">${jobs.length} postings parsed from the last
+                 ${window} day(s). Nothing was written to the database.</p>
+               <p style="color:var(--dim)"><code>${escapeHtml(query)}</code></p>
+               <table style="width:100%;border-collapse:collapse;font-size:13px">
+                 <tr style="text-align:left">
+                   <th>source</th><th>title</th><th>employer</th>
+                   <th>location</th><th>salary</th><th>description</th>
+                 </tr>
+                 ${rows || '<tr><td colspan="6">Nothing parsed.</td></tr>'}
+               </table>
+             </div>`,
+          ),
+        );
       }
 
       // ---------------------------------------------------------- portal
