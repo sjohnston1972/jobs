@@ -11,22 +11,46 @@
  * scorer sees nothing addressing working location, and score.ts caps the
  * posting at 39, so a Claude call is spent on something that can never surface.
  *
- * The heuristic: a line continues the one above it when the line above was
- * long enough to plausibly have been wrapped (WRAP_MIN characters or more),
- * the line above is the kind of line that wraps at all (prose, not a URL or a
- * badge), and the line itself is not recognisably the start of a new field.
+ * Length alone cannot tell a wrapped remainder from an unrelated field that
+ * simply follows a long line: a LinkedIn title of 60-71 characters is
+ * ordinary for a senior architecture role and does not wrap, but a
+ * length-only test swallowed the employer line beneath it regardless. The
+ * heuristic instead asks whether the next line's first word would have
+ * fitted on the end of the previous one — a hard wrap only ever breaks
+ * because the next word did not fit, so a line is a wrap source only when
+ * `previous + " " + firstWordOfNext` would have overrun WRAP_WIDTH. WRAP_MIN
+ * is kept as a floor beneath that test (raised to 66, the lowest genuine wrap
+ * point observed in the fixtures) so a short line is never treated as a wrap
+ * source even if the arithmetic happens to work out.
  *
- * The length test is against the *raw* previous input line rather than the
+ * Both tests are against the *raw* previous input line rather than the
  * accumulated join, so a wrapped remainder — which is short, being the tail of
  * a wrap — does not go on to swallow the line after it. A title wrapped across
  * three lines still joins, because the middle line is itself full width.
  *
- * This is a heuristic and it will occasionally be wrong: a genuine field that
- * follows a 60-character line and matches none of the caller's patterns gets
- * swallowed. That is the trade against losing the location on every wrapped
- * title, which was measured rather than hypothesised.
+ * This is a heuristic and it will occasionally be wrong. That is the trade
+ * against losing the location on every wrapped title, which was measured
+ * rather than hypothesised.
  */
-export const WRAP_MIN = 60;
+export const WRAP_MIN = 66;
+
+/** The column both alerts hard-wrap prose at. */
+const WRAP_WIDTH = 72;
+
+/** The first whitespace-delimited token of a line, for the overrun test. */
+function firstWordLength(line: string): number {
+  const trimmed = line.trimStart();
+  const gap = trimmed.search(/\s/);
+  return gap === -1 ? trimmed.length : gap;
+}
+
+/**
+ * True when appending the next line's first word to the previous line would
+ * have overrun the wrap width — the actual mechanism behind a hard wrap.
+ */
+function overrunsWrapWidth(previousRaw: string, next: string): boolean {
+  return previousRaw.length + 1 + firstWordLength(next) > WRAP_WIDTH;
+}
 
 export interface WrapRules {
   /** Could this line have been truncated by the wrapper? Prose, not a URL. */
@@ -43,6 +67,7 @@ export function joinWrappedLines(lines: string[], rules: WrapRules): string[] {
     const continues =
       out.length > 0 &&
       previousRaw.length >= WRAP_MIN &&
+      overrunsWrapWidth(previousRaw, line) &&
       rules.canWrap(previousRaw) &&
       !rules.isNewField(line);
 

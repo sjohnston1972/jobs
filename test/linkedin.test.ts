@@ -107,4 +107,24 @@ describe('parseLinkedInAlert, awkward real-world blocks', () => {
       ['4470000002', 'Security Architect', 'UK Ministry of Defence', 'Matlock'],
     ]);
   });
+
+  it('does not swallow the employer line under a long title that never wrapped', () => {
+    // 61 characters — over the old WRAP_MIN of 60 despite never having wrapped.
+    // Ordinary length for a senior architecture title.
+    const body = [
+      'Your job alert for Europe',
+      '',
+      'Principal Cloud Architect for Public Sector Digital Programme',
+      'HM Revenue & Customs',
+      'United Kingdom',
+      '',
+      'View job: https://www.linkedin.com/comm/jobs/view/4480000001/?trackingId=SCRUBBED',
+      '',
+    ].join('\n');
+
+    const [first] = parseLinkedInAlert(body, RECEIVED);
+    expect(first.title).toBe('Principal Cloud Architect for Public Sector Digital Programme');
+    expect(first.employer).toBe('HM Revenue & Customs');
+    expect(first.location).toBe('United Kingdom');
+  });
 });

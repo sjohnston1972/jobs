@@ -133,4 +133,22 @@ describe('parseIndeedAlert, awkward real-world blocks', () => {
     expect(second.postedAt).toBe('2026-08-14T06:55:07.000Z');
     expect(second.snippet).toBe('');
   });
+
+  it('does not let a long but genuine employer/location line absorb the snippet', () => {
+    // "Public Sector Resourcing (PSR) - Manchester, Greater Manchester" is 63
+    // characters — over the old WRAP_MIN of 60 despite never having wrapped.
+    const body = [
+      'Network Architect',
+      'Public Sector Resourcing (PSR) - Manchester, Greater Manchester',
+      'Design and operate the WAN estate for a public sector programme.',
+      'Today',
+      'https://uk.indeed.com/rc/clk/dl?jk=deadbeefcafebabe&from=ja&tk=SCRUBBED',
+      '',
+    ].join('\n');
+
+    const [first] = parseIndeedAlert(body, RECEIVED).postings;
+    expect(first.employer).toBe('Public Sector Resourcing (PSR)');
+    expect(first.location).toBe('Manchester, Greater Manchester');
+    expect(first.snippet).toBe('Design and operate the WAN estate for a public sector programme.');
+  });
 });
