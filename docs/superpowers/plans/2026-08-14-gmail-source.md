@@ -1064,8 +1064,10 @@ git commit -m "Feed Gmail postings into the pipeline with their own scoring budg
 - Modify: `src/index.ts` (`BUILD`, the new route)
 
 **Interfaces:**
-- Consumes: `fetchGmail` (Task 4), `layout` from `./web/portal` (already imported in `src/index.ts`).
+- Consumes: `fetchGmail` (Task 4, imported by Task 5), `layout` from `./web/portal` and `escapeHtml` from `./pipeline/digest`.
 - Produces: `GET /gmail/preview?days=N`, behind Cloudflare Access.
+
+Place the route anywhere after the `const viewer = await signedInEmail(...)` line and before the `if (path === '/')` portal route — it needs `viewer` in scope.
 
 - [ ] **Step 1: Bump the build marker**
 
@@ -1129,23 +1131,18 @@ In the `fetch` handler, after the `if (path === '/weekly') { ... }` block and be
       }
 ```
 
-- [ ] **Step 3: Export escapeHtml from the portal**
+- [ ] **Step 3: Import escapeHtml**
 
-`escapeHtml` lives in `src/web/portal.ts`. Confirm it is exported:
-
-Run: `grep -n "function escapeHtml" src/web/portal.ts`
-
-If the line reads `function escapeHtml` rather than `export function escapeHtml`, add the `export` keyword. Then add `escapeHtml` to the existing import block in `src/index.ts`:
+`escapeHtml` is already exported from `src/pipeline/digest.ts` — `src/web/portal.ts` imports it from there. Nothing needs exporting. Add it to the existing digest import in `src/index.ts`, changing:
 
 ```ts
-import {
-  escapeHtml,
-  layout,
-  renderMessage,
-  renderPortal,
-  renderTailored,
-  renderTrackConfirm,
-} from './web/portal';
+import { buildDigest, buildWeeklySummary } from './pipeline/digest';
+```
+
+to:
+
+```ts
+import { buildDigest, buildWeeklySummary, escapeHtml } from './pipeline/digest';
 ```
 
 - [ ] **Step 4: Typecheck and test**
@@ -1156,7 +1153,7 @@ Expected: both pass.
 - [ ] **Step 5: Commit and deploy**
 
 ```bash
-git add src/index.ts src/web/portal.ts
+git add src/index.ts
 git commit -m "Add /gmail/preview and bump the build marker"
 npm run deploy
 ```
