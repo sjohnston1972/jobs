@@ -47,6 +47,21 @@ export const APPLICATION_STATUSES: ApplicationStatus[] = [
   'closed',
 ];
 
+/**
+ * Sources whose alert emails carry no description. A posting with no text
+ * about working location scores "low" remote confidence by scoring rule 2,
+ * which scoreJob caps at 39 — below minScoreForDigest. Scoring them cannot
+ * ever surface one; it only spends. They are collected as leads. Do not
+ * remove this as dead weight.
+ *
+ * Declared here rather than at any one use site because several unrelated
+ * places need to agree on it: the prefilter drops them, getUnscoredJobs
+ * excludes them in SQL so its LIMIT is not spent on rows that can never be
+ * scored, and dedupe refuses to let one suppress a board posting it can never
+ * replace.
+ */
+export const UNSCORED_SOURCES: readonly string[] = ['linkedin'];
+
 /** A posting after normalisation, before it reaches the database. */
 export interface NormalisedJob {
   id: string; // "reed:40227781"

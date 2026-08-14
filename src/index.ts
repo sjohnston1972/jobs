@@ -5,7 +5,7 @@ import { pool } from './lib/pool';
 import { verifyAccess } from './lib/access';
 import { verify } from './lib/sign';
 import type { Env, JobRow, NormalisedJob, RunCounts, ApplicationStatus } from './lib/types';
-import { APPLICATION_STATUSES } from './lib/types';
+import { APPLICATION_STATUSES, UNSCORED_SOURCES } from './lib/types';
 import { fetchAdzuna } from './sources/adzuna';
 import { fetchReed, fetchReedDescription } from './sources/reed';
 import { fetchGmail } from './sources/gmail';
@@ -33,15 +33,13 @@ const SCORING_CONCURRENCY = 3;
 const MAX_ENRICH_PER_RUN = 60;
 
 /**
- * Sources whose alert emails carry no description. A posting with no text
- * about working location scores "low" remote confidence by scoring rule 2,
- * which scoreJob caps at 39 — below minScoreForDigest. Scoring them cannot
- * ever surface one; it only spends. They are collected as leads for the
- * portal instead. Do not remove this as dead weight.
+ * Email-sourced postings share a budget of their own; see below.
+ *
+ * LinkedIn is listed even though UNSCORED_SOURCES removes it before this
+ * filter runs, because this set answers "did this come from an alert email?"
+ * and the answer for LinkedIn is yes. Keeping the two sets independently
+ * correct means widening either one does not silently break the other.
  */
-const UNSCORED_SOURCES = new Set(['linkedin']);
-
-/** Email-sourced postings share a budget of their own; see below. */
 const EMAIL_SOURCES = new Set(['indeed', 'linkedin']);
 
 // =====================================================================
@@ -107,8 +105,10 @@ export async function runPipeline(env: Env): Promise<RunCounts & { errors: strin
   let toScore: JobRow[] = [];
   try {
     const unscored = await db.getUnscoredJobs(env.DB, db.daysAgoIso(criteria.lookbackDays + 3));
-    // Dropped before the gates rather than after, so they cost nothing.
-    const scoreableSources = unscored.filter((j) => !UNSCORED_SOURCES.has(j.source));
+    // getUnscoredJobs already excludes these in SQL, so this is belt and
+    // braces: it is the readable statement of the rule, and it keeps this
+    // stage correct if that query is ever rewritten.
+    const scoreableSources = unscored.filter((j) => !UNSCORED_SOURCES.includes(j.source));
     const titled = applyTitleGate(scoreableSources, criteria);
 
     // -- Stage 4b: enrich. Only Reed exposes a detail endpoint; Adzuna excerpts

@@ -6,9 +6,22 @@ import type {
   ScoreResult,
   ScoredJob,
 } from './types';
+import { UNSCORED_SOURCES } from './types';
 
 /** SQLite caps bound parameters per statement; chunk anything variable-length. */
 const PARAM_CHUNK = 90;
+
+/**
+ * `AND <column> NOT IN (?,?)` for the sources that are never scored, with the
+ * binds that go with it. Expressed once so the SQL and the in-memory filter in
+ * runPipeline cannot drift apart. Empty when the list is empty, because
+ * `NOT IN ()` is a syntax error rather than a no-op.
+ */
+function excludeUnscored(column: string): { sql: string; binds: string[] } {
+  if (!UNSCORED_SOURCES.length) return { sql: '', binds: [] };
+  const placeholders = UNSCORED_SOURCES.map(() => '?').join(',');
+  return { sql: ` AND ${column} NOT IN (${placeholders})`, binds: [...UNSCORED_SOURCES] };
+}
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -87,18 +100,30 @@ export async function getExistingIds(db: D1Database, ids: string[]): Promise<Set
   return found;
 }
 
+/**
+ * Hashes that an incoming posting is allowed to be rejected against. Rows from
+ * sources that are never scored are left out: a LinkedIn lead carries no
+ * description, so if it were allowed to hold the window it would drop the Reed
+ * posting for the same role — and since the lead can never be scored, the role
+ * would vanish from the pipeline entirely.
+ */
 export async function getRecentHashes(db: D1Database, sinceIso: string): Promise<Set<string>> {
+  const skip = excludeUnscored('source');
   const { results } = await db
-    .prepare('SELECT DISTINCT content_hash FROM jobs WHERE first_seen_at >= ?')
-    .bind(sinceIso)
+    .prepare(`SELECT DISTINCT content_hash FROM jobs WHERE first_seen_at >= ?${skip.sql}`)
+    .bind(sinceIso, ...skip.binds)
     .all<{ content_hash: string }>();
   return new Set((results ?? []).map((r) => r.content_hash));
 }
 
 export async function getRecentRoleHashes(db: D1Database, sinceIso: string): Promise<Set<string>> {
+  const skip = excludeUnscored('source');
   const { results } = await db
-    .prepare('SELECT DISTINCT role_hash FROM jobs WHERE first_seen_at >= ? AND role_hash IS NOT NULL')
-    .bind(sinceIso)
+    .prepare(
+      `SELECT DISTINCT role_hash FROM jobs
+       WHERE first_seen_at >= ? AND role_hash IS NOT NULL${skip.sql}`,
+    )
+    .bind(sinceIso, ...skip.binds)
     .all<{ role_hash: string }>();
   return new Set((results ?? []).map((r) => r.role_hash));
 }
@@ -141,15 +166,20 @@ export async function getUnscoredJobs(
   sinceIso: string,
   limit = 500,
 ): Promise<JobRow[]> {
+  // Sources that are never scored are excluded here rather than only in
+  // memory. They are dated to the alert email, so they sort to the front of
+  // this ordering and would otherwise be permanently resident at the top of
+  // the limit, spending it on rows that can never leave this query.
+  const skip = excludeUnscored('j.source');
   const { results } = await db
     .prepare(
       `SELECT j.* FROM jobs j
        LEFT JOIN scores s ON s.job_id = j.id
-       WHERE s.job_id IS NULL AND j.first_seen_at >= ?
+       WHERE s.job_id IS NULL AND j.first_seen_at >= ?${skip.sql}
        ORDER BY COALESCE(j.posted_at, j.first_seen_at) DESC
        LIMIT ?`,
     )
-    .bind(sinceIso, limit)
+    .bind(sinceIso, ...skip.binds, limit)
     .all<JobRow>();
   return results ?? [];
 }

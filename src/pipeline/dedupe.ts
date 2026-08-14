@@ -1,5 +1,6 @@
 import { daysAgoIso, getExistingIds, getRecentHashes, getRecentRoleHashes } from '../lib/db';
 import type { NormalisedJob } from '../lib/types';
+import { UNSCORED_SOURCES } from '../lib/types';
 
 export interface DedupeResult {
   fresh: NormalisedJob[];
@@ -64,8 +65,19 @@ export async function dedupe(
     }
 
     seenIds.add(job.id);
-    seenHashes.add(job.content_hash);
-    if (job.role_hash) seenRoleHashes.add(job.role_hash);
+    // A row that can never be scored must not suppress one that can. A
+    // LinkedIn lead has no salary, and normaliseForHash buckets a null salary
+    // to 0 — so it hashes identically to any board posting for the same role
+    // that states no salary, which is the common case. The alert email lands
+    // minutes before the 06:00 cron, so without this the lead wins the window
+    // and the Reed posting with a full description is dropped as its
+    // duplicate. Since the lead is never scored, the role would then be
+    // absent from the digest entirely. getRecentHashes applies the same rule
+    // to what is already stored.
+    if (!UNSCORED_SOURCES.includes(job.source)) {
+      seenHashes.add(job.content_hash);
+      if (job.role_hash) seenRoleHashes.add(job.role_hash);
+    }
     fresh.push(job);
   }
 
