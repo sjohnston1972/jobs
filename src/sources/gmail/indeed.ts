@@ -165,8 +165,9 @@ export function parseIndeedAlert(body: string, receivedAt: Date): IndeedParseRes
     const title = lines[0];
 
     // The second line is the employer/location pair only when no other
-    // classifier claims it. Without this test a block that omits the company
-    // line — Indeed does drop it — yields an employer of "Just posted".
+    // classifier claims it. Without this test, a block that omits the company
+    // line yields an employer of "Just posted" — the same reasoning that made
+    // every other line in the block pattern-matched rather than counted.
     const claimed = isAgeLine(lines[1]) || isBadge(lines[1]) || parseSalary(lines[1]) !== null;
     const pair: [string | null, string | null] = claimed
       ? [null, null]

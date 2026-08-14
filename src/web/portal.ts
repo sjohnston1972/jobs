@@ -232,7 +232,12 @@ export function renderPortal(
 
 function renderEmpty(filter: PortalFilter, criteria: Criteria): string {
   const filtered =
-    filter.minScore !== undefined || filter.status || filter.remote || filter.search;
+    filter.minScore !== undefined ||
+    filter.status ||
+    filter.remote ||
+    filter.search ||
+    filter.source ||
+    filter.leads;
   return `<div class="empty">
     <div class="empty__title">${filtered ? 'Nothing matches those filters.' : 'No postings scored yet.'}</div>
     <div class="empty__body">${
