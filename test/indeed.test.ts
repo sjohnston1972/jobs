@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseIndeedAlert } from '../src/sources/gmail/indeed';
 
 const BODY = readFileSync(new URL('./fixtures/indeed-alert.txt', import.meta.url), 'utf8');
+const WRAPPED = readFileSync(new URL('./fixtures/indeed-wrapped.txt', import.meta.url), 'utf8');
 const RECEIVED = new Date('2026-08-14T06:55:07Z');
 
 describe('parseIndeedAlert', () => {
@@ -63,5 +64,73 @@ describe('parseIndeedAlert', () => {
     const result = parseIndeedAlert('Indeed Job Alert\n\nDo not share this email\n', RECEIVED);
     expect(result.postings).toEqual([]);
     expect(result.skippedSponsored).toBe(0);
+    expect(result.skippedNoKey).toBe(0);
+  });
+});
+
+describe('parseIndeedAlert, awkward real-world blocks', () => {
+  const parsed = () => parseIndeedAlert(WRAPPED, RECEIVED);
+
+  it('accepts an uppercase job key rather than dropping it as an advert', () => {
+    const [first] = parsed().postings;
+    expect(first.sourceId).toBe('ABCDEF0123456789');
+    expect(first.url).toBe('https://uk.indeed.com/viewjob?jk=ABCDEF0123456789');
+  });
+
+  it('counts a pagead slot and an unreadable organic key apart', () => {
+    const result = parsed();
+    // Folding these together would make a template change look like a rise in
+    // advertising — the one thing skippedSponsored exists to rule out.
+    expect(result.skippedSponsored).toBe(1);
+    expect(result.skippedNoKey).toBe(1);
+    expect(result.postings).toHaveLength(3);
+  });
+
+  it('rejoins a title hard-wrapped across two lines', () => {
+    const [first] = parsed().postings;
+    expect(first.title).toBe(
+      'Senior Network Solutions Architect - Multi-Cloud Connectivity and Global WAN Transformation',
+    );
+  });
+
+  it('keeps the employer and the location a wrapped title would have eaten', () => {
+    // The damaging half: with the remainder read as the employer, the location
+    // ends up null, the description loses its "Location: " prefix and the
+    // scorer has nothing to say about working location.
+    const [first] = parsed().postings;
+    expect(first.employer).toBe('Acme Corp');
+    expect(first.location).toBe('Remote');
+  });
+
+  it('does not treat an employer line as the tail of a long title', () => {
+    const [, , third] = parsed().postings;
+    expect(third.title).toBe(
+      'Principal Infrastructure Architect for Regulated Financial Services',
+    );
+    expect(third.employer).toBe('Globex Consulting');
+    expect(third.location).toBe('London');
+  });
+
+  it('reads an en-dash salary range the right way round', () => {
+    const [first] = parsed().postings;
+    expect(first.salaryMin).toBe(90000);
+    expect(first.salaryMax).toBe(110000);
+    expect(first.salaryPeriod).toBe('annual');
+  });
+
+  it('splits an en-dash employer and location', () => {
+    const [first] = parsed().postings;
+    expect(first.employer).toBe('Acme Corp');
+    expect(first.location).toBe('Remote');
+  });
+
+  it('leaves the employer null when the block has no company line', () => {
+    const [, second] = parsed().postings;
+    expect(second.title).toBe('Cloud Network Engineer');
+    expect(second.employer).toBeNull();
+    expect(second.location).toBeNull();
+    // The age line must still be read rather than consumed as the employer.
+    expect(second.postedAt).toBe('2026-08-14T06:55:07.000Z');
+    expect(second.snippet).toBe('');
   });
 });

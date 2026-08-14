@@ -22,4 +22,11 @@ export interface IndeedParseResult {
    * counted rather than ignored so a further rise is visible in the logs.
    */
   skippedSponsored: number;
+  /**
+   * Blocks with an organic rc/clk link whose job key could not be read. Kept
+   * apart from skippedSponsored because this one means the template changed,
+   * and folding the two together would make a parser failure look like a rise
+   * in advertising — masking the very signal skippedSponsored exists to give.
+   */
+  skippedNoKey: number;
 }
