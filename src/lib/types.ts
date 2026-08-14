@@ -15,6 +15,10 @@ export interface Env {
   TRACK_SIGNING_SECRET: string;
   DIGEST_TO: string;
   DIGEST_FROM: string;
+  /** Google OAuth for the Gmail source. Read-only scope; see the design doc. */
+  GMAIL_CLIENT_ID: string;
+  GMAIL_CLIENT_SECRET: string;
+  GMAIL_REFRESH_TOKEN: string;
 
   // Plain vars
   SITE_URL: string;
