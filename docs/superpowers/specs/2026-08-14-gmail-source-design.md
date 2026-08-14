@@ -160,12 +160,15 @@ The canonical URL replaces the personalised tracking link, which the email
 itself asks not to be shared and which may expire.
 
 **Postings whose URL carries no `jk` are skipped and counted.** Indeed seeds
-sponsored slots into organic digests as `pagead/clk` ad redirects — one of the
-seven results in the digest sampled during design was one. They have no job key,
-so no stable id, and their ad tokens change on every send, meaning any
-synthesised id would defeat dedupe rather than serve it. They are advertising
-rather than search results, and the skip count is logged so a sudden rise in
-sponsored slots is visible rather than silent.
+sponsored slots into organic digests as `pagead/clk` ad redirects. They have no
+job key, so no stable id, and their ad tokens change on every send, meaning any
+synthesised id would defeat dedupe rather than serve it.
+
+Measured on 2026-08-14 across three digests: **24 of 38 links were sponsored,
+against 14 organic.** Roughly two thirds of what an Indeed digest appears to
+offer is advertising, so this skip is the majority path rather than an edge case,
+and expected yield is about a third of the raw link count. The skip count is
+logged per run so a further rise is visible rather than silent.
 
 Salary periods map onto the existing `annual | daily | unknown` so no migration
 is needed: `a year` → annual, `a month` × 12 → annual, `a day` → daily,
@@ -257,11 +260,10 @@ that must be skipped, one LinkedIn digest, a posting missing each optional line
 **Indeed `jk` decoding.** In the copies read during design, `jk` values arrived
 mangled (`jk~4b22c7f0b7ba6a`, `jk987da…`) — quoted-printable artifacts of
 the tool used to read them, where `=` is the escape character. The Gmail API
-returns part bodies already decoded, so clean values are expected, but this must
-be confirmed against a live fetch before `jk` is trusted as `source_id`. This is
-the first thing to verify in implementation: there is no other stable identifier
-in the email, so if the values do not come back clean the Indeed half of this
-design needs rethinking. Check it before building the parser.
+returns part bodies already decoded, and a live fetch on 2026-08-14 confirmed it:
+all 14 organic links sampled came back as clean 16-character hex keys, and the
+artifact is explained exactly — `jk=5a8e...` renders as `jkZ8e...` because
+quoted-printable decodes `=5A` to `Z`. **Resolved. `jk` is safe as `source_id`.**
 
 **Subrequest ceiling.** This adds 1 token exchange plus up to 41 Gmail calls to
 a run that already issues up to 8 board searches, 60 Reed enrichments, 40

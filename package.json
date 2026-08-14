@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "db:schema": "wrangler d1 execute job-monitor --remote --file=./schema.sql",
     "db:schema:local": "wrangler d1 execute job-monitor --local --file=./schema.sql",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "gmail:auth": "node scripts/gmail-auth.mjs",
+    "secrets:gmail": "node scripts/gmail-secrets.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260808.1",
