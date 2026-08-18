@@ -10,7 +10,7 @@ Build spec: `job-monitor-spec.md`. Read it before changing pipeline behaviour.
 ## Shape of the thing
 
 ```
-Cron 06:00 UTC ──> scheduled() ──> fetch ──> dedupe ──> title gate
+Cron 07:00 UTC ──> scheduled() ──> fetch ──> dedupe ──> title gate
                                                           │
                                               enrich (Reed detail)
                                                           │

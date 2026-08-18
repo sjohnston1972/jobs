@@ -27,7 +27,7 @@ database_id = "f0192270-392b-460d-8794-963013c0eeff"
 # 06:00 UTC daily collection, 07:00 UTC Sunday application summary.
 # Cron is always UTC, so the daily digest lands at 07:00 during BST.
 [triggers]
-crons = ["0 6 * * *", "0 7 * * SUN"]
+crons = ["0 7 * * *", "0 8 * * SUN"]
 
 # config/profile.md is bundled into the Worker as a string.
 [[rules]]

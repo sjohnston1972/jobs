@@ -29,7 +29,7 @@ import { clearOverride, readOverrides, setOverride } from './lib/settings';
  * Bumped by hand whenever pipeline behaviour changes. /health reports it, so
  * "is the fix actually live?" is a question with an answer rather than a guess.
  */
-export const BUILD = 'v12-runtime-settings';
+export const BUILD = 'v13-adzuna-retry';
 
 const SCORING_CONCURRENCY = 3;
 /** Bounds the subrequest count: one detail call per title-matching Reed job. */
@@ -283,7 +283,7 @@ async function checkSignature(url: URL, env: Env, fields: string[]): Promise<boo
 export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Two triggers share one handler: the daily collection and the Sunday summary.
-    if (event.cron === '0 7 * * SUN') {
+    if (event.cron === '0 8 * * SUN') {
       ctx.waitUntil(runWeeklySummary(env));
       return;
     }

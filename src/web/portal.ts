@@ -119,7 +119,7 @@ export function renderPortal(
 
   const staleNotice = stale
     ? `<div class="notice">The last run finished ${hoursSince} hours ago. The daily trigger
-       fires at 06:00 UTC — if that is more than a day, check <a href="/health">/health</a>.</div>`
+       fires at 07:00 UTC — if that is more than a day, check <a href="/health">/health</a>.</div>`
     : '';
 
   // Only rendered when the request asked for leads. Nothing on the default
@@ -244,7 +244,7 @@ function renderEmpty(filter: PortalFilter, criteria: Criteria): string {
     <div class="empty__body">${
       filtered
         ? `Clear them to see everything collected so far. <a href="/">Show all</a>`
-        : `The collector runs daily at 06:00 UTC. Trigger one now with
+        : `The collector runs daily at 07:00 UTC. Trigger one now with
            <code>/run?key=…</code>, or check <a href="/health">/health</a> for the last result.`
     }</div>
   </div>`;
