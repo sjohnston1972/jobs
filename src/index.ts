@@ -4,7 +4,7 @@ import { sendEmail } from './lib/email';
 import { pool } from './lib/pool';
 import { verifyAccess } from './lib/access';
 import { verify } from './lib/sign';
-import type { Env, JobRow, NormalisedJob, RunCounts, ApplicationStatus } from './lib/types';
+import type { Env, JobRow, NormalisedJob, RunCounts, ApplicationStatus, Criteria } from './lib/types';
 import { APPLICATION_STATUSES, UNSCORED_SOURCES } from './lib/types';
 import { fetchAdzuna } from './sources/adzuna';
 import { fetchReed, fetchReedDescription } from './sources/reed';
@@ -21,6 +21,9 @@ import {
   renderTailored,
   renderTrackConfirm,
 } from './web/portal';
+import { renderSettings } from './web/settings';
+import { FIELD_VALIDATORS, isSettableKey } from './lib/settings-schema';
+import { clearOverride, readOverrides, setOverride } from './lib/settings';
 
 /**
  * Bumped by hand whenever pipeline behaviour changes. /health reports it, so
@@ -383,6 +386,30 @@ export default {
         return html(
           renderTailored(scored, cached.cv_summary, cached.cover_letter, cached.model, cached.created_at),
         );
+      }
+
+      if (path === '/settings') {
+        if (!viewer) return json({ error: 'not authorised' }, 403);
+        const overrides = await readOverrides(env.DB);
+        // 0 until Task 9 adds countRescorable.
+        return html(renderSettings(defaultCriteria, overrides, 0));
+      }
+
+      if (path === '/api/settings' && request.method === 'POST') {
+        if (!viewer) return json({ error: 'not authorised' }, 403);
+        const body = (await request.json()) as { key?: string; value?: unknown; reset?: boolean };
+        const key = String(body.key ?? '');
+        if (!isSettableKey(key)) return json({ error: 'unknown setting' }, 400);
+
+        if (body.reset) {
+          await clearOverride(env.DB, key);
+          return json({ ok: true, key, effective: (await loadCriteria(env.DB))[key as keyof Criteria] });
+        }
+
+        const result = FIELD_VALIDATORS[key](body.value);
+        if (!result.ok) return json({ error: `${key} ${result.error}` }, 400);
+        await setOverride(env.DB, key, result.value);
+        return json({ ok: true, key, effective: result.value });
       }
 
       if (path === '/api/status' && request.method === 'POST') {

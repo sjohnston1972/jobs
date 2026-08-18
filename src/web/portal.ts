@@ -222,6 +222,7 @@ export function renderPortal(
   <footer class="footer">
     <span>${jobs.length} shown &nbsp;·&nbsp; threshold ${criteria.minScoreForDigest} &nbsp;·&nbsp; scored by ${escapeHtml(criteria.scoringModel)}</span>
     <span>${escapeHtml(viewer)} &nbsp;·&nbsp; <a href="/cdn-cgi/access/logout">Sign out</a>
+      &nbsp;·&nbsp; <a href="/settings">Settings</a>
       &nbsp;·&nbsp; <a href="/health">/health</a></span>
   </footer>
 </div>

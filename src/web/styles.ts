@@ -568,6 +568,91 @@ a { color: var(--accent); text-decoration: none; }
   color: var(--dim);
 }
 
+/* ---------------------------------------------------------- settings page */
+
+.field {
+  border: 1px solid var(--rule);
+  border-radius: var(--unit-r);
+  background: var(--panel);
+  padding: 13px 16px;
+  margin-bottom: 12px;
+}
+.field label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+.field__control {
+  width: 100%;
+  background: var(--panel-hi);
+  border: 1px solid var(--rule);
+  border-radius: var(--unit-r);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.field__control:focus { border-color: var(--accent); outline: none; }
+.field__list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 0;
+}
+.field__list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel-hi);
+  border: 1px solid var(--rule);
+  border-radius: var(--unit-r);
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+}
+.field__list button {
+  background: none;
+  border: none;
+  color: var(--dimmer);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  padding: 0;
+}
+
+.badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sig-mid);
+  border: 1px solid var(--sig-mid);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+.default {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--dimmer);
+  margin-top: 6px;
+}
+
+.note {
+  font-size: 13px;
+  color: var(--dim);
+  margin: -4px 0 14px;
+}
+
 .toast {
   position: fixed;
   left: 50%;
