@@ -162,6 +162,18 @@ export function capsScore(
   return attendance === 'fixed' || attendance === 'onsite';
 }
 
+/**
+ * The score a capped posting is stored at. 39 was safe only while
+ * minScoreForDigest was a fixed 60; now it is adjustable in 0-100, so the cap
+ * must always land strictly below whatever the threshold currently is, or a
+ * low threshold would let a capped score straight into the digest and the
+ * remote policy would stop excluding anything. Clamped so a threshold of 0
+ * cannot push the cap negative.
+ */
+export function capValueFor(minScoreForDigest: number): number {
+  return Math.max(0, Math.min(39, minScoreForDigest - 1));
+}
+
 export function buildScoringPrompt(job: JobRow, profile: string): string {
   const description = (job.description ?? '').slice(0, MAX_DESCRIPTION_CHARS);
   const truncationNote = job.description_truncated
@@ -266,10 +278,12 @@ export async function scoreJob(
     'none', 'occasional', 'fixed', 'onsite', 'unstated',
   ]);
 
+  const capValue = capValueFor(criteria.minScoreForDigest);
+
   let finalScore = score;
   let reasonSuffix = '';
-  if (score >= 40 && capsScore(criteria.remoteRequirement, attendance)) {
-    finalScore = 39;
+  if (score > capValue && capsScore(criteria.remoteRequirement, attendance)) {
+    finalScore = capValue;
     reasonSuffix = ` [capped from ${score}: attendance is ${attendance}, requirement is ${criteria.remoteRequirement}]`;
   }
 

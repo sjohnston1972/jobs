@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSystemPrompt, capsScore } from '../src/pipeline/score';
+import { buildSystemPrompt, capsScore, capValueFor } from '../src/pipeline/score';
 import type { Attendance, Criteria } from '../src/lib/types';
 
 const ALL: Attendance[] = ['none', 'occasional', 'fixed', 'onsite', 'unstated'];
@@ -33,6 +33,20 @@ describe('capsScore', () => {
 
   it('never caps when the model returned nothing', () => {
     expect(capsScore('strict', null)).toBe(false);
+  });
+});
+
+describe('capValueFor', () => {
+  it('caps to 39 at the default threshold of 40, unchanged from before thresholds were tunable', () => {
+    expect(capValueFor(40)).toBe(39);
+  });
+
+  it('stays below a threshold lowered under 39, so a capped score cannot reach the digest', () => {
+    expect(capValueFor(35)).toBeLessThan(35);
+  });
+
+  it('never goes negative when the threshold is 0', () => {
+    expect(capValueFor(0)).toBeGreaterThanOrEqual(0);
   });
 });
 
