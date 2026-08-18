@@ -43,6 +43,13 @@ export function titleGate(job: Filterable, criteria: Criteria): GateVerdict {
 export function bodyGate(job: Filterable, criteria: Criteria): GateVerdict {
   if (job.description_truncated) return { pass: true, matched: 'excerpt-deferred-to-scorer' };
 
+  // The settings validator deliberately allows this list to be emptied (every
+  // term removed one at a time through the portal). Array.find on an empty
+  // list returns undefined just like "no term matched", so without this check
+  // an emptied list would reject every full-text posting instead of imposing
+  // no requirement at all.
+  if (criteria.bodyRequireAny.length === 0) return { pass: true, matched: 'no-body-requirement' };
+
   const body = `${job.title} ${job.description ?? ''}`.toLowerCase();
   const remote = criteria.bodyRequireAny.find((term) => body.includes(term.toLowerCase()));
   if (!remote) return { pass: false, reason: 'no-remote-wording' };

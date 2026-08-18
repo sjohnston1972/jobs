@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gateLeadsAtIngest, titleGate, type Filterable } from '../src/pipeline/prefilter';
+import { bodyGate, gateLeadsAtIngest, titleGate, type Filterable } from '../src/pipeline/prefilter';
 import type { Criteria } from '../src/lib/types';
 import realCriteria from '../config/criteria.json';
 
@@ -72,6 +72,30 @@ describe('gateLeadsAtIngest', () => {
     const result = gateLeadsAtIngest([], criteria(), new Set(['linkedin']));
     expect(result.kept).toEqual([]);
     expect(result.dropped).toBe(0);
+  });
+});
+
+describe('bodyGate', () => {
+  it('passes a full-text posting with no remote wording when bodyRequireAny is empty', () => {
+    const posting = job({
+      title: 'Network Architect',
+      description: 'A role based in an office, nothing about location here.',
+      description_truncated: 0,
+    });
+    const verdict = bodyGate(posting, criteria({ bodyRequireAny: [] }));
+    expect(verdict.pass).toBe(true);
+    expect(verdict.matched).toBe('no-body-requirement');
+  });
+
+  it('still fails a full-text posting with no remote wording when bodyRequireAny is populated', () => {
+    const posting = job({
+      title: 'Network Architect',
+      description: 'A role based in an office, nothing about location here.',
+      description_truncated: 0,
+    });
+    const verdict = bodyGate(posting, criteria({ bodyRequireAny: ['remote'] }));
+    expect(verdict.pass).toBe(false);
+    expect(verdict.reason).toBe('no-remote-wording');
   });
 });
 
