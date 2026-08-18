@@ -1,4 +1,4 @@
-import { criteria, profile } from './lib/config';
+import { criteria as defaultCriteria, loadCriteria, profile } from './lib/config';
 import * as db from './lib/db';
 import { sendEmail } from './lib/email';
 import { pool } from './lib/pool';
@@ -48,6 +48,10 @@ const EMAIL_SOURCES = new Set(['indeed', 'linkedin']);
 
 export async function runPipeline(env: Env): Promise<RunCounts & { errors: string[] }> {
   const runId = await db.startRun(env.DB);
+  // Loaded once and passed through every stage. Stage 4 chooses what to score
+  // and stage 6 chooses what to digest, both from minScoreForDigest — a
+  // settings change landing between them must not make the two disagree.
+  const criteria = await loadCriteria(env.DB);
   const runStartedAt = db.nowIso();
   const errors: string[] = [];
   const counts: RunCounts = { fetched: 0, new_jobs: 0, prefiltered: 0, scored: 0, digested: 0 };
@@ -412,6 +416,7 @@ export default {
       // layout can be checked on a day when nothing actually matched.
       if (path === '/digest/preview') {
         if (!viewer) return json({ error: 'not authorised' }, 403);
+        const criteria = await loadCriteria(env.DB);
         const min = Number(url.searchParams.get('min') ?? criteria.minScoreForDigest);
         const days = Number(url.searchParams.get('days') ?? 1);
         const since = db.daysAgoIso(Number.isFinite(days) ? days : 1);
@@ -451,6 +456,7 @@ export default {
         if (!viewer) return json({ error: 'not authorised' }, 403);
         const days = Number(url.searchParams.get('days') ?? 2);
         const window = Number.isFinite(days) && days > 0 ? Math.floor(days) : 2;
+        const criteria = await loadCriteria(env.DB);
         const query = criteria.gmailQuery.replace(/newer_than:\d+d/, `newer_than:${window}d`);
 
         const { jobs, errors: gmailErrors } = await fetchGmail(env, criteria, query);
@@ -494,6 +500,7 @@ export default {
       if (path === '/') {
         if (!viewer) return notAuthorised();
 
+        const criteria = await loadCriteria(env.DB);
         const minRaw = url.searchParams.get('min');
         const source = url.searchParams.get('source') ?? undefined;
         const filter = {
@@ -557,6 +564,7 @@ async function ensureTailored(
   }
 
   try {
+    const criteria = await loadCriteria(env.DB);
     const draft = await tailorForJob(env.ANTHROPIC_API_KEY, job, profile, criteria);
     await db.saveTailored(env.DB, jobId, draft.cvSummary, draft.coverLetter, draft.model);
     return { job, cvSummary: draft.cvSummary, coverLetter: draft.coverLetter, model: draft.model };
