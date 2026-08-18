@@ -7,9 +7,10 @@
  * Measured on 2026-08-14: an Indeed title wrapping after "…and Global" put
  * "WAN Transformation" in the employer slot, pushed the real employer into the
  * location slot and left the location null. That last part is the damaging
- * one — with no location the description loses its "Location: " prefix, the
- * scorer sees nothing addressing working location, and score.ts caps the
- * posting at 39, so a Claude call is spent on something that can never surface.
+ * one — with no location the description loses its "Location: " prefix, so the
+ * scorer sees nothing addressing working location. It then extracts
+ * `attendance: "unstated"` and scores conservatively on the little it has, and
+ * a genuinely remote role reads as one that simply never said so.
  *
  * Length alone cannot tell a wrapped remainder from an unrelated field that
  * simply follows a long line: a LinkedIn title of 60-71 characters is

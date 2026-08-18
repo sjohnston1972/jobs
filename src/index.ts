@@ -29,7 +29,7 @@ import { clearOverride, readOverrides, setOverride } from './lib/settings';
  * Bumped by hand whenever pipeline behaviour changes. /health reports it, so
  * "is the fix actually live?" is a question with an answer rather than a guess.
  */
-export const BUILD = 'v13-adzuna-retry';
+export const BUILD = 'v14-copy-fixes';
 
 const SCORING_CONCURRENCY = 3;
 /** Bounds the subrequest count: one detail call per title-matching Reed job. */

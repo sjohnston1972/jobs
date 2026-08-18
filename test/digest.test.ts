@@ -17,7 +17,7 @@ function job(fields: Partial<ScoredJob>): ScoredJob {
 }
 
 describe('summariseRejects', () => {
-  it('counts a posting silent on location as a remote reject under strict', () => {
+  it('does not count a posting silent on location as a remote reject, even under strict', () => {
     const jobs = [job({ attendance: 'unstated' })];
     // unstated never caps, at any level — see capsScore — so it should not
     // be reported as excluded on attendance even under strict.

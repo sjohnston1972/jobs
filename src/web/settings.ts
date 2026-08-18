@@ -1,4 +1,5 @@
 import { escapeHtml } from '../pipeline/digest';
+import { capValueFor } from '../pipeline/score';
 import { layout } from './portal';
 import { MODEL_IDS, SETTABLE_KEYS } from '../lib/settings-schema';
 import type { Criteria } from '../lib/types';
@@ -19,18 +20,23 @@ const GROUPS: Group[] = [
   { title: 'Plumbing', keys: ['gmailQuery', 'scoringModel', 'tailoringModel'] },
 ];
 
-const REMOTE_LEVELS: Array<[string, string]> = [
-  ['strict', 'Strict — any attendance requirement caps the score at 39'],
-  ['mostly', 'Mostly remote — occasional travel is fine; fixed days or on-site cap at 39'],
-  ['any', 'Any — nothing is capped; remoteness only costs points'],
-];
+// Built from the effective threshold rather than fixed, because the cap is
+// capValueFor(minScoreForDigest) — it has to stay strictly below the digest
+// threshold, so a hard-coded 39 misstates it for any threshold under 40.
+function remoteLevels(cap: number): Array<[string, string]> {
+  return [
+    ['strict', `Strict — any attendance requirement caps the score at ${cap}`],
+    ['mostly', `Mostly remote — occasional travel is fine; fixed days or on-site cap at ${cap}`],
+    ['any', 'Any — nothing is capped; remoteness only costs points'],
+  ];
+}
 
 // isOverridden is not read here — the override badge is rendered by the
 // caller, which is where the flag actually matters. control() only needs
 // the value that should currently sit in the field.
-function control(key: string, effective: unknown): string {
+function control(key: string, effective: unknown, cap: number): string {
   if (key === 'remoteRequirement') {
-    const opts = REMOTE_LEVELS.map(
+    const opts = remoteLevels(cap).map(
       ([v, label]) =>
         `<option value="${escapeHtml(v)}"${v === effective ? ' selected' : ''}>${escapeHtml(label)}</option>`,
     ).join('');
@@ -62,6 +68,8 @@ export function renderSettings(
   overrides: Record<string, unknown>,
   rescorable: number,
 ): string {
+  const cap = capValueFor(effective.minScoreForDigest);
+
   const rows = GROUPS.map((group) => {
     // Filtered against SETTABLE_KEYS so a field with no validator — contractTypes —
     // cannot be rendered even if someone adds it to a group by mistake.
@@ -87,7 +95,7 @@ export function renderSettings(
         );
         return `<div class="field" data-field="${escapeHtml(key)}">
             <label>${escapeHtml(key)} ${badge}</label>
-            ${control(key, value)}
+            ${control(key, value, cap)}
             <p class="default">default: ${dflt}</p>
           </div>`;
       })
@@ -97,8 +105,11 @@ export function renderSettings(
   }).join('');
 
   const rescore = `<section><h2>Rescore</h2>
-      <p>${rescorable} scored jobs are inside the current lookback window.
-         Re-judging them costs ${rescorable} Claude calls.</p>
+      <p>${rescorable} scored jobs inside the current lookback window can be
+         re-judged. Jobs you have marked as applied are excluded and keep their
+         score, so they stay visible in the portal and the weekly summary.
+         Re-judging costs ${rescorable} Claude calls, spread across runs at
+         ${escapeHtml(String(effective.maxScoredPerRun))} a day.</p>
       <button type="button" class="btn" id="rescore" data-count="${rescorable}">Rescore these ${rescorable}</button>
     </section>`;
 
