@@ -3,16 +3,22 @@
     "network architect",
     "cloud network",
     "solutions architect",
+    "solution architect",
     "infrastructure architect",
     "network consultant",
+    "networking consultant",
     "principal engineer",
+    "network engineer",
     "technical lead",
     "lead architect",
     "enterprise architect",
     "security architect",
     "principal architect",
     "network design",
-    "technical architect"
+    "technical architect",
+    "cloud architect",
+    "platform architect",
+    "network security"
   ],
   "titleBlock": [
     "sales",
@@ -40,7 +46,8 @@
     "fully remote",
     "work from home"
   ],
-  "minScoreForDigest": 60,
+  "minScoreForDigest": 40,
+  "remoteRequirement": "mostly",
   "tailorThreshold": 70,
   "maxScoredPerRun": 40,
   "lookbackDays": 7,

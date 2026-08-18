@@ -32,6 +32,8 @@ export type ContractType = 'permanent' | 'contract' | 'unknown';
 export type RemoteConfidence = 'high' | 'medium' | 'low';
 export type Ir35Signal = 'inside' | 'outside' | 'unstated' | 'n/a';
 export type SeniorityFit = 'below' | 'match' | 'above';
+/** How much office attendance the candidate will tolerate. Enforced in code, not just the prompt. */
+export type RemoteRequirement = 'strict' | 'mostly' | 'any';
 export type ApplicationStatus =
   | 'interested'
   | 'applied'
@@ -144,6 +146,8 @@ export interface Criteria {
   titleBlock: string[];
   bodyRequireAny: string[];
   minScoreForDigest: number;
+  /** Selects the rule 3 wording in the scoring prompt and the score cap policy. */
+  remoteRequirement: RemoteRequirement;
   tailorThreshold: number;
   maxScoredPerRun: number;
   lookbackDays: number;

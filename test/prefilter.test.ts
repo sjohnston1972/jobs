@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { gateLeadsAtIngest, type Filterable } from '../src/pipeline/prefilter';
+import { gateLeadsAtIngest, titleGate, type Filterable } from '../src/pipeline/prefilter';
 import type { Criteria } from '../src/lib/types';
+import realCriteria from '../config/criteria.json';
 
 type Job = Filterable & { source: string };
 
@@ -20,6 +21,7 @@ function criteria(overrides: Partial<Criteria> = {}): Criteria {
     titleBlock: ['junior'],
     bodyRequireAny: ['remote'],
     minScoreForDigest: 60,
+    remoteRequirement: 'strict',
     tailorThreshold: 70,
     maxScoredPerRun: 20,
     lookbackDays: 3,
@@ -70,5 +72,29 @@ describe('gateLeadsAtIngest', () => {
     const result = gateLeadsAtIngest([], criteria(), new Set(['linkedin']));
     expect(result.kept).toEqual([]);
     expect(result.dropped).toBe(0);
+  });
+});
+
+describe('titleAllow covers the singular forms', () => {
+  const c = realCriteria as unknown as Criteria;
+
+  it.each([
+    'Senior Solution Architect',
+    'Oracle Cloud Solution Architect',
+    'Solution Architect - Infrastructure & Networks',
+    'zScaler / Networking Consultant',
+    'Principal Network Engineer',
+    'Senior Cloud Architect',
+  ])('admits %s', (title) => {
+    expect(titleGate({ title, description: '', description_truncated: 0 }, c).pass).toBe(true);
+  });
+
+  it('still blocks a junior network engineer', () => {
+    const verdict = titleGate(
+      { title: 'Group Junior Network Engineer', description: '', description_truncated: 0 },
+      c,
+    );
+    expect(verdict.pass).toBe(false);
+    expect(verdict.reason).toBe('title-blocked');
   });
 });
