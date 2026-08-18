@@ -26,6 +26,14 @@ describe('rescore helpers', () => {
     expect(n).toBe(47);
   });
 
+  it('excludes applied jobs from the count, so rescore cannot silently evict them', async () => {
+    const { db, prepare } = fakeDb({ n: 47 });
+    await countRescorable(db, '2026-08-11T00:00:00.000Z');
+    const sql = prepare.mock.calls[0][0] as string;
+    expect(sql).toContain('NOT EXISTS');
+    expect(sql).toContain('FROM applications a WHERE a.job_id = j.id');
+  });
+
   it('deletes only scores inside the window, scoped by a job_id subquery, and reports the count', async () => {
     const { db, prepare, bind } = fakeDb(null);
     const deleted = await clearScoresSince(db, '2026-08-11T00:00:00.000Z');
@@ -42,6 +50,14 @@ describe('rescore helpers', () => {
     // Non-zero on purpose: a happy path asserting 0 would be indistinguishable
     // from the fallback case below, since both would then assert the same value.
     expect(deleted).toBe(3);
+  });
+
+  it('excludes applied jobs from the delete, matching the guard in countRescorable', async () => {
+    const { db, prepare } = fakeDb(null);
+    await clearScoresSince(db, '2026-08-11T00:00:00.000Z');
+    const sql = prepare.mock.calls[0][0] as string;
+    expect(sql).toContain('NOT EXISTS');
+    expect(sql).toContain('FROM applications a WHERE a.job_id = j.id');
   });
 
   it('falls back to 0 when D1 reports no changes metadata', async () => {

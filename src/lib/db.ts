@@ -197,19 +197,29 @@ export async function countRescorable(db: D1Database, sinceIso: string): Promise
     .prepare(
       `SELECT COUNT(*) AS n FROM scores s
        JOIN jobs j ON j.id = s.job_id
-       WHERE j.first_seen_at >= ?`,
+       WHERE j.first_seen_at >= ?
+         AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id)`,
     )
     .bind(sinceIso)
     .first<{ n: number }>();
   return row?.n ?? 0;
 }
 
-/** Deletes scores for jobs still inside the lookback window, same bound as countRescorable. */
+/**
+ * Deletes scores for jobs still inside the lookback window, same bound as
+ * countRescorable. Excludes jobs with an applications row: the portal's
+ * default view and the weekly active-applications summary both inner-join
+ * scores, so deleting the score for a job the owner marked applied would
+ * evict it from both — one click, no confirmation, irreversible until a
+ * later run rescores it. The count and the delete must stay in agreement, so
+ * this guard has to change in lockstep with the one in countRescorable.
+ */
 export async function clearScoresSince(db: D1Database, sinceIso: string): Promise<number> {
   const result = await db
     .prepare(
       `DELETE FROM scores WHERE job_id IN (
          SELECT j.id FROM jobs j WHERE j.first_seen_at >= ?
+           AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id)
        )`,
     )
     .bind(sinceIso)
