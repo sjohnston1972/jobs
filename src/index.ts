@@ -29,7 +29,7 @@ import { clearOverride, readOverrides, setOverride } from './lib/settings';
  * Bumped by hand whenever pipeline behaviour changes. /health reports it, so
  * "is the fix actually live?" is a question with an answer rather than a guess.
  */
-export const BUILD = 'v11-lead-title-gate';
+export const BUILD = 'v12-runtime-settings';
 
 const SCORING_CONCURRENCY = 3;
 /** Bounds the subrequest count: one detail call per title-matching Reed job. */
@@ -393,7 +393,7 @@ export default {
         const overrides = await readOverrides(env.DB);
         const criteria = await loadCriteria(env.DB);
         const rescorable = await db.countRescorable(env.DB, db.daysAgoIso(criteria.lookbackDays + 3));
-        return html(renderSettings(defaultCriteria, overrides, rescorable));
+        return html(renderSettings(defaultCriteria, criteria, overrides, rescorable));
       }
 
       // Clears scores inside the lookback window so the next run re-judges
