@@ -1,4 +1,5 @@
 import { FIELD_VALIDATORS, isSettableKey } from './settings-schema';
+import type { FieldResult } from './settings-schema';
 import type { Criteria } from './types';
 
 /**
@@ -57,7 +58,14 @@ export function mergeCriteria(defaults: Criteria, rows: Record<string, unknown>)
       console.log(`settings: ignoring unknown key ${key}`);
       continue;
     }
-    const result = FIELD_VALIDATORS[key](raw);
+    let result: FieldResult;
+    try {
+      result = FIELD_VALIDATORS[key](raw);
+    } catch (err) {
+      // A validator must not discard all overrides if it throws.
+      console.log(`settings: validator threw for ${key} (${String(err)}), using default`);
+      continue;
+    }
     if (!result.ok) {
       console.log(`settings: ignoring invalid ${key} (${result.error}), using default`);
       continue;

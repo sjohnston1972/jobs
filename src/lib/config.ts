@@ -9,7 +9,7 @@ import type { Criteria } from './types';
  * loadCriteria wherever behaviour depends on tuning — `criteria` alone is only
  * correct for showing the user what "default" means.
  */
-export const criteria = criteriaJson as unknown as Criteria;
+export const criteria = criteriaJson as Criteria;
 export const profile: string = profileMd;
 
 export async function loadCriteria(db: D1Database): Promise<Criteria> {

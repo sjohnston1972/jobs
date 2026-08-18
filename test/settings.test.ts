@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mergeCriteria } from '../src/lib/settings';
+import * as settingsSchema from '../src/lib/settings-schema';
 import type { Criteria } from '../src/lib/types';
 
 function defaults(overrides: Partial<Criteria> = {}): Criteria {
@@ -25,7 +26,7 @@ function defaults(overrides: Partial<Criteria> = {}): Criteria {
 
 describe('mergeCriteria', () => {
   it('returns the defaults when nothing is overridden', () => {
-    expect(mergeCriteria(defaults(), {})).toEqual(defaults() as unknown as Record<string, unknown>);
+    expect(mergeCriteria(defaults(), {})).toEqual(defaults());
   });
 
   it('applies an override', () => {
@@ -62,5 +63,27 @@ describe('mergeCriteria', () => {
   it('normalises a valid override through its validator', () => {
     const merged = mergeCriteria(defaults(), { titleAllow: ['  Network Architect '] });
     expect(merged.titleAllow).toEqual(['network architect']);
+  });
+
+  it('isolates a throwing validator to its own field', () => {
+    const originalValidator = settingsSchema.FIELD_VALIDATORS['minScoreForDigest'];
+    const throwingValidator = vi.fn(() => {
+      throw new Error('validator explosion');
+    });
+    settingsSchema.FIELD_VALIDATORS['minScoreForDigest'] = throwingValidator;
+
+    try {
+      const merged = mergeCriteria(defaults(), {
+        minScoreForDigest: 55,
+        tailorThreshold: 80,
+      });
+      // The throwing field falls back to default
+      expect(merged.minScoreForDigest).toBe(40);
+      // Other overrides still apply
+      expect(merged.tailorThreshold).toBe(80);
+    } finally {
+      // Restore the original validator
+      settingsSchema.FIELD_VALIDATORS['minScoreForDigest'] = originalValidator;
+    }
   });
 });
