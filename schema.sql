@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS scores (
   remote_evidence   TEXT,                -- the phrase the model relied on
   ir35_signal       TEXT,                -- inside | outside | unstated | n/a
   seniority_fit     TEXT,                -- below | match | above
+  attendance        TEXT,                -- none | occasional | fixed | onsite | unstated
   reason            TEXT,                -- one line
   red_flags         TEXT,                -- JSON array
   model             TEXT,
@@ -42,6 +43,15 @@ CREATE TABLE IF NOT EXISTS scores (
 );
 CREATE INDEX IF NOT EXISTS idx_scores_scored_at ON scores(scored_at);
 CREATE INDEX IF NOT EXISTS idx_scores_score ON scores(score);
+
+-- Sparse overrides for config/criteria.json. Only fields actually changed in
+-- the portal get a row; everything else continues to track the bundled file,
+-- so editing criteria.json and redeploying still works for anything untouched.
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,   -- a Criteria field name
+  value      TEXT NOT NULL,      -- JSON-encoded scalar or array
+  updated_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS applications (
   job_id      TEXT PRIMARY KEY REFERENCES jobs(id),
