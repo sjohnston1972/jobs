@@ -1,14 +1,29 @@
 import type {
   ApplicationStatus,
+  Attendance,
   JobRow,
   NormalisedJob,
+  PortalJob,
   RunCounts,
   ScoreResult,
   ScoredJob,
 } from './types';
+import { UNSCORED_SOURCES } from './types';
 
 /** SQLite caps bound parameters per statement; chunk anything variable-length. */
 const PARAM_CHUNK = 90;
+
+/**
+ * `AND <column> NOT IN (?,?)` for the sources that are never scored, with the
+ * binds that go with it. Expressed once so the SQL and the in-memory filter in
+ * runPipeline cannot drift apart. Empty when the list is empty, because
+ * `NOT IN ()` is a syntax error rather than a no-op.
+ */
+function excludeUnscored(column: string): { sql: string; binds: string[] } {
+  if (!UNSCORED_SOURCES.length) return { sql: '', binds: [] };
+  const placeholders = UNSCORED_SOURCES.map(() => '?').join(',');
+  return { sql: ` AND ${column} NOT IN (${placeholders})`, binds: [...UNSCORED_SOURCES] };
+}
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -87,18 +102,30 @@ export async function getExistingIds(db: D1Database, ids: string[]): Promise<Set
   return found;
 }
 
+/**
+ * Hashes that an incoming posting is allowed to be rejected against. Rows from
+ * sources that are never scored are left out: a LinkedIn lead carries no
+ * description, so if it were allowed to hold the window it would drop the Reed
+ * posting for the same role — and since the lead can never be scored, the role
+ * would vanish from the pipeline entirely.
+ */
 export async function getRecentHashes(db: D1Database, sinceIso: string): Promise<Set<string>> {
+  const skip = excludeUnscored('source');
   const { results } = await db
-    .prepare('SELECT DISTINCT content_hash FROM jobs WHERE first_seen_at >= ?')
-    .bind(sinceIso)
+    .prepare(`SELECT DISTINCT content_hash FROM jobs WHERE first_seen_at >= ?${skip.sql}`)
+    .bind(sinceIso, ...skip.binds)
     .all<{ content_hash: string }>();
   return new Set((results ?? []).map((r) => r.content_hash));
 }
 
 export async function getRecentRoleHashes(db: D1Database, sinceIso: string): Promise<Set<string>> {
+  const skip = excludeUnscored('source');
   const { results } = await db
-    .prepare('SELECT DISTINCT role_hash FROM jobs WHERE first_seen_at >= ? AND role_hash IS NOT NULL')
-    .bind(sinceIso)
+    .prepare(
+      `SELECT DISTINCT role_hash FROM jobs
+       WHERE first_seen_at >= ? AND role_hash IS NOT NULL${skip.sql}`,
+    )
+    .bind(sinceIso, ...skip.binds)
     .all<{ role_hash: string }>();
   return new Set((results ?? []).map((r) => r.role_hash));
 }
@@ -141,17 +168,63 @@ export async function getUnscoredJobs(
   sinceIso: string,
   limit = 500,
 ): Promise<JobRow[]> {
+  // Sources that are never scored are excluded here rather than only in
+  // memory. They are dated to the alert email, so they sort to the front of
+  // this ordering and would otherwise be permanently resident at the top of
+  // the limit, spending it on rows that can never leave this query.
+  const skip = excludeUnscored('j.source');
   const { results } = await db
     .prepare(
       `SELECT j.* FROM jobs j
        LEFT JOIN scores s ON s.job_id = j.id
-       WHERE s.job_id IS NULL AND j.first_seen_at >= ?
+       WHERE s.job_id IS NULL AND j.first_seen_at >= ?${skip.sql}
        ORDER BY COALESCE(j.posted_at, j.first_seen_at) DESC
        LIMIT ?`,
     )
-    .bind(sinceIso, limit)
+    .bind(sinceIso, ...skip.binds, limit)
     .all<JobRow>();
   return results ?? [];
+}
+
+/**
+ * Scores for jobs still inside the lookback window. Bounded by the job's
+ * first_seen_at rather than the score's scored_at, because the question is
+ * "which jobs would the next run reconsider", and getUnscoredJobs bounds on
+ * first_seen_at too.
+ */
+export async function countRescorable(db: D1Database, sinceIso: string): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM scores s
+       JOIN jobs j ON j.id = s.job_id
+       WHERE j.first_seen_at >= ?
+         AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id)`,
+    )
+    .bind(sinceIso)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/**
+ * Deletes scores for jobs still inside the lookback window, same bound as
+ * countRescorable. Excludes jobs with an applications row: the portal's
+ * default view and the weekly active-applications summary both inner-join
+ * scores, so deleting the score for a job the owner marked applied would
+ * evict it from both — one click, no confirmation, irreversible until a
+ * later run rescores it. The count and the delete must stay in agreement, so
+ * this guard has to change in lockstep with the one in countRescorable.
+ */
+export async function clearScoresSince(db: D1Database, sinceIso: string): Promise<number> {
+  const result = await db
+    .prepare(
+      `DELETE FROM scores WHERE job_id IN (
+         SELECT j.id FROM jobs j WHERE j.first_seen_at >= ?
+           AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id)
+       )`,
+    )
+    .bind(sinceIso)
+    .run();
+  return result.meta?.changes ?? 0;
 }
 
 export async function insertScore(
@@ -163,8 +236,8 @@ export async function insertScore(
     .prepare(
       `INSERT OR REPLACE INTO scores (
          job_id, score, remote_confidence, remote_evidence, ir35_signal,
-         seniority_fit, reason, red_flags, model, scored_at
-       ) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+         seniority_fit, attendance, reason, red_flags, model, scored_at
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .bind(
       jobId,
@@ -173,6 +246,7 @@ export async function insertScore(
       result.remote_evidence,
       result.ir35_signal,
       result.seniority_fit,
+      result.attendance,
       result.reason,
       JSON.stringify(result.red_flags ?? []),
       result.model,
@@ -183,15 +257,28 @@ export async function insertScore(
 
 // ---------------------------------------------------------------- reads
 
-const SCORED_SELECT = `
+function selectWith(scoresJoin: 'JOIN' | 'LEFT JOIN'): string {
+  return `
   SELECT j.*, s.score, s.remote_confidence, s.remote_evidence, s.ir35_signal,
-         s.seniority_fit, s.reason, s.red_flags, s.scored_at,
+         s.seniority_fit, s.attendance, s.reason, s.red_flags, s.scored_at,
          a.status, a.updated_at AS status_updated_at, a.notes
   FROM jobs j
-  JOIN scores s ON s.job_id = j.id
+  ${scoresJoin} scores s ON s.job_id = j.id
   LEFT JOIN applications a ON a.job_id = j.id`;
+}
 
-function toScoredJob(row: Record<string, unknown>): ScoredJob {
+/** The scored view. The inner join is what keeps unscored rows out of the digest. */
+const SCORED_SELECT = selectWith('JOIN');
+
+/**
+ * The same shape with the score optional, so postings from UNSCORED_SOURCES —
+ * which by design never get a scores row — can be listed. Only getPortalJobs
+ * uses it, and only when the request explicitly asks for leads. The digest
+ * queries stay on SCORED_SELECT and must.
+ */
+const LEADS_SELECT = selectWith('LEFT JOIN');
+
+function toPortalJob(row: Record<string, unknown>): PortalJob {
   let flags: string[] = [];
   try {
     const parsed = JSON.parse((row.red_flags as string) || '[]');
@@ -199,7 +286,19 @@ function toScoredJob(row: Record<string, unknown>): ScoredJob {
   } catch {
     // A malformed array is not worth failing a page render over.
   }
-  return { ...(row as unknown as ScoredJob), red_flags: flags };
+  return {
+    ...(row as unknown as PortalJob),
+    red_flags: flags,
+    // A leads row has no scores row at all. Left as null so the UI can say so
+    // rather than printing a 0, which would read as "assessed and rejected".
+    score: row.score === null || row.score === undefined ? null : Number(row.score),
+    attendance: (row.attendance as Attendance | null) ?? null,
+  };
+}
+
+/** Rows from a query that inner-joins scores always carry one. */
+function toScoredJob(row: Record<string, unknown>): ScoredJob {
+  return toPortalJob(row) as ScoredJob;
 }
 
 /** Everything scored during this run at or above the digest threshold. */
@@ -236,13 +335,26 @@ export interface PortalFilter {
   remote?: string;
   search?: string;
   sort?: 'score' | 'posted' | 'seen';
+  /**
+   * Include postings that have never been scored. Off unless the request asks
+   * for it, so the default portal view is exactly what it was before leads
+   * existed.
+   */
+  leads?: boolean;
   limit?: number;
+}
+
+/** True when a request has explicitly asked to see rows that cannot be scored. */
+export function wantsLeads(leadsParam: string | null, source: string | undefined): boolean {
+  // A ?source= naming an unscored source is as explicit an ask as ?leads=1,
+  // and without this that filter would return an empty page every time.
+  return leadsParam === '1' || (source !== undefined && UNSCORED_SOURCES.includes(source));
 }
 
 export async function getPortalJobs(
   db: D1Database,
   filter: PortalFilter,
-): Promise<ScoredJob[]> {
+): Promise<PortalJob[]> {
   const where: string[] = [];
   const binds: unknown[] = [];
 
@@ -284,13 +396,13 @@ export async function getPortalJobs(
         : 's.score DESC, COALESCE(j.posted_at, j.first_seen_at) DESC';
 
   const sql =
-    SCORED_SELECT +
+    (filter.leads ? LEADS_SELECT : SCORED_SELECT) +
     (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
     ` ORDER BY ${order} LIMIT ?`;
   binds.push(filter.limit ?? 200);
 
   const { results } = await db.prepare(sql).bind(...binds).all<Record<string, unknown>>();
-  return (results ?? []).map(toScoredJob);
+  return (results ?? []).map(toPortalJob);
 }
 
 export async function getScoredJob(db: D1Database, id: string): Promise<ScoredJob | null> {

@@ -15,6 +15,10 @@ export interface Env {
   TRACK_SIGNING_SECRET: string;
   DIGEST_TO: string;
   DIGEST_FROM: string;
+  /** Google OAuth for the Gmail source. Read-only scope; see the design doc. */
+  GMAIL_CLIENT_ID: string;
+  GMAIL_CLIENT_SECRET: string;
+  GMAIL_REFRESH_TOKEN: string;
 
   // Plain vars
   SITE_URL: string;
@@ -28,6 +32,10 @@ export type ContractType = 'permanent' | 'contract' | 'unknown';
 export type RemoteConfidence = 'high' | 'medium' | 'low';
 export type Ir35Signal = 'inside' | 'outside' | 'unstated' | 'n/a';
 export type SeniorityFit = 'below' | 'match' | 'above';
+/** How much office attendance the candidate will tolerate. Enforced in code, not just the prompt. */
+export type RemoteRequirement = 'strict' | 'mostly' | 'any';
+/** What the posting states about office attendance. A fact, not a judgement. */
+export type Attendance = 'none' | 'occasional' | 'fixed' | 'onsite' | 'unstated';
 export type ApplicationStatus =
   | 'interested'
   | 'applied'
@@ -43,10 +51,27 @@ export const APPLICATION_STATUSES: ApplicationStatus[] = [
   'closed',
 ];
 
+/**
+ * Sources whose alert emails carry no description. A posting with no text
+ * about working location scores "low" remote confidence by scoring rule 2,
+ * which scoreJob caps at 39 — below minScoreForDigest. Scoring them cannot
+ * ever surface one; it only spends. They are collected as leads and are
+ * reachable in the portal's leads view (`/?leads=1`). Do not remove this as
+ * dead weight.
+ *
+ * Declared here rather than at any one use site because several unrelated
+ * places need to agree on it: the prefilter drops them, getUnscoredJobs
+ * excludes them in SQL so its LIMIT is not spent on rows that can never be
+ * scored, dedupe refuses to let one suppress a board posting it can never
+ * replace, and the portal decides from it whether a request is asking for
+ * leads.
+ */
+export const UNSCORED_SOURCES: readonly string[] = ['linkedin'];
+
 /** A posting after normalisation, before it reaches the database. */
 export interface NormalisedJob {
   id: string; // "reed:40227781"
-  source: 'reed' | 'adzuna';
+  source: 'reed' | 'adzuna' | 'indeed' | 'linkedin';
   source_id: string;
   title: string;
   employer: string | null;
@@ -79,6 +104,7 @@ export interface ScoreResult {
   remote_evidence: string | null;
   ir35_signal: Ir35Signal | null;
   seniority_fit: SeniorityFit | null;
+  attendance: Attendance | null;
   reason: string;
   red_flags: string[];
   model: string;
@@ -91,12 +117,25 @@ export interface ScoredJob extends JobRow {
   remote_evidence: string | null;
   ir35_signal: Ir35Signal | null;
   seniority_fit: SeniorityFit | null;
+  attendance: Attendance | null;
   reason: string | null;
   red_flags: string[];
   scored_at: string;
   status: ApplicationStatus | null;
   status_updated_at: string | null;
   notes: string | null;
+}
+
+/**
+ * A row as the portal lists it. Identical to ScoredJob except that the score
+ * and everything joined from it may be absent, because the portal's leads view
+ * lists postings from UNSCORED_SOURCES that will never have a scores row.
+ * ScoredJob is assignable to this, so the default (scored) view is unaffected.
+ */
+export interface PortalJob extends Omit<ScoredJob, 'score' | 'scored_at'> {
+  score: number | null;
+  scored_at: string | null;
+  attendance: Attendance | null;
 }
 
 export interface RunCounts {
@@ -112,11 +151,19 @@ export interface Criteria {
   titleBlock: string[];
   bodyRequireAny: string[];
   minScoreForDigest: number;
+  /** Selects the rule 3 wording in the scoring prompt and the score cap policy. */
+  remoteRequirement: RemoteRequirement;
   tailorThreshold: number;
   maxScoredPerRun: number;
   lookbackDays: number;
   contractTypes: string[];
   seedQueries: string[];
+  /** Gmail search that selects the alert emails. Sender-based, so no Gmail-side filter is needed. */
+  gmailQuery: string;
+  /** Bounds the Gmail message fetches per run. */
+  maxEmailsPerRun: number;
+  /** Bounds how many email-sourced postings may reach the scorer in one run. */
+  maxEmailJobsPerRun: number;
   scoringModel: string;
   tailoringModel: string;
 }

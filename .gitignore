@@ -3,6 +3,8 @@
 .env.*
 .dev.vars
 .dev.vars.*
+# Google OAuth client download, if it lands in the project root
+client_secret*.json
 
 # Dependencies
 node_modules/

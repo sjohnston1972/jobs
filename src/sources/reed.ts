@@ -1,3 +1,4 @@
+import { fetchWithRetry } from '../lib/http';
 import type { NormalisedJob } from '../lib/types';
 import {
   inferContractType,
@@ -51,7 +52,7 @@ export async function fetchReed(
   url.searchParams.set('resultsToTake', String(resultsToTake));
   url.searchParams.set('resultsToSkip', '0');
 
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithRetry(url.toString(), {
     headers: { authorization: authHeader(apiKey), accept: 'application/json' },
   });
   if (!response.ok) {
@@ -107,7 +108,7 @@ export async function fetchReedDescription(
   apiKey: string,
   sourceId: string,
 ): Promise<string | null> {
-  const response = await fetch(`${DETAIL_URL}/${sourceId}`, {
+  const response = await fetchWithRetry(`${DETAIL_URL}/${sourceId}`, {
     headers: { authorization: authHeader(apiKey), accept: 'application/json' },
   });
   if (!response.ok) return null;

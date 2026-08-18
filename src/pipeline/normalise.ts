@@ -107,7 +107,14 @@ export async function withHash(
   job: Omit<NormalisedJob, 'content_hash' | 'role_hash'>,
 ): Promise<NormalisedJob> {
   const contentKey = normaliseForHash(job.title, job.employer, job.salary_min, job.salary_max);
-  const roleKey = normaliseForRoleHash(job.title, job.salary_min, job.salary_max, job.salary_period);
+  // A predicted salary is a machine's guess — Indeed and Adzuna both estimate
+  // one when the employer states none, and neither says which figures are
+  // theirs. role_hash buckets salary 20k wide, so an estimate of £72k and a
+  // real £78k for the same title collapse and the real posting is dropped as a
+  // duplicate of the guess. A guessed number is not a dedupe key.
+  const roleKey = job.salary_predicted
+    ? null
+    : normaliseForRoleHash(job.title, job.salary_min, job.salary_max, job.salary_period);
   return {
     ...job,
     content_hash: await contentHash(contentKey),

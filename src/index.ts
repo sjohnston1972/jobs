@@ -1,16 +1,17 @@
-import { criteria, profile } from './lib/config';
+import { criteria as defaultCriteria, loadCriteria, profile } from './lib/config';
 import * as db from './lib/db';
 import { sendEmail } from './lib/email';
 import { pool } from './lib/pool';
 import { verifyAccess } from './lib/access';
 import { verify } from './lib/sign';
-import type { Env, JobRow, NormalisedJob, RunCounts, ApplicationStatus } from './lib/types';
-import { APPLICATION_STATUSES } from './lib/types';
+import type { Env, JobRow, NormalisedJob, RunCounts, ApplicationStatus, Criteria } from './lib/types';
+import { APPLICATION_STATUSES, UNSCORED_SOURCES } from './lib/types';
 import { fetchAdzuna } from './sources/adzuna';
 import { fetchReed, fetchReedDescription } from './sources/reed';
+import { fetchGmail } from './sources/gmail';
 import { dedupe } from './pipeline/dedupe';
-import { buildDigest, buildWeeklySummary } from './pipeline/digest';
-import { applyBodyGate, applyTitleGate } from './pipeline/prefilter';
+import { buildDigest, buildWeeklySummary, escapeHtml } from './pipeline/digest';
+import { applyBodyGate, applyTitleGate, gateLeadsAtIngest } from './pipeline/prefilter';
 import { scoreJob } from './pipeline/score';
 import { tailorForJob, tailoredEmail } from './pipeline/tailor';
 import {
@@ -20,16 +21,29 @@ import {
   renderTailored,
   renderTrackConfirm,
 } from './web/portal';
+import { renderSettings } from './web/settings';
+import { FIELD_VALIDATORS, isSettableKey } from './lib/settings-schema';
+import { clearOverride, readOverrides, setOverride } from './lib/settings';
 
 /**
  * Bumped by hand whenever pipeline behaviour changes. /health reports it, so
  * "is the fix actually live?" is a question with an answer rather than a guess.
  */
-export const BUILD = 'v9-chip-overflow';
+export const BUILD = 'v13-adzuna-retry';
 
 const SCORING_CONCURRENCY = 3;
 /** Bounds the subrequest count: one detail call per title-matching Reed job. */
 const MAX_ENRICH_PER_RUN = 60;
+
+/**
+ * Email-sourced postings share a budget of their own; see below.
+ *
+ * LinkedIn is listed even though UNSCORED_SOURCES removes it before this
+ * filter runs, because this set answers "did this come from an alert email?"
+ * and the answer for LinkedIn is yes. Keeping the two sets independently
+ * correct means widening either one does not silently break the other.
+ */
+const EMAIL_SOURCES = new Set(['indeed', 'linkedin']);
 
 // =====================================================================
 // Pipeline
@@ -37,6 +51,10 @@ const MAX_ENRICH_PER_RUN = 60;
 
 export async function runPipeline(env: Env): Promise<RunCounts & { errors: string[] }> {
   const runId = await db.startRun(env.DB);
+  // Loaded once and passed through every stage. Stage 4 chooses what to score
+  // and stage 6 chooses what to digest, both from minScoreForDigest — a
+  // settings change landing between them must not make the two disagree.
+  const criteria = await loadCriteria(env.DB);
   const runStartedAt = db.nowIso();
   const errors: string[] = [];
   const counts: RunCounts = { fetched: 0, new_jobs: 0, prefiltered: 0, scored: 0, digested: 0 };
@@ -57,15 +75,35 @@ export async function runPipeline(env: Env): Promise<RunCounts & { errors: strin
       errors.push(String(err));
     }
   }
+
+  // Alert emails, once per run rather than once per seed query. The throw is
+  // total failure (no token, list call dead); the returned errors are the
+  // partial ones — per-message fetch failures and a parser that came back
+  // empty — which keep the run going but must still reach runs.errors.
+  try {
+    const gmail = await fetchGmail(env, criteria);
+    collected.push(...gmail.jobs);
+    errors.push(...gmail.errors);
+  } catch (err) {
+    errors.push(`gmail: ${String(err)}`);
+  }
   counts.fetched = collected.length;
+
+  // Leads (postings from UNSCORED_SOURCES) are gated on title here, before
+  // storage — see the comment on gateLeadsAtIngest for why scoreable
+  // postings are not gated the same way. counts.fetched above stays the
+  // honest count of what the sources returned; this only decides what gets
+  // past dedupe and into the database.
+  const gated = gateLeadsAtIngest(collected, criteria, new Set(UNSCORED_SOURCES));
+  console.log(`lead-gate: ${collected.length} in, ${gated.dropped} leads dropped on title`);
 
   // -- Stages 2 and 3: normalise happened in the collectors; dedupe and store.
   try {
-    const result = await dedupe(env.DB, collected);
+    const result = await dedupe(env.DB, gated.kept);
     await db.insertJobs(env.DB, result.fresh, runStartedAt);
     counts.new_jobs = result.fresh.length;
     console.log(
-      `dedupe: ${collected.length} in, ${result.fresh.length} fresh`,
+      `dedupe: ${gated.kept.length} in, ${result.fresh.length} fresh`,
       JSON.stringify({
         by_source_id: result.bySourceId,
         by_content_hash: result.byContentHash,
@@ -87,7 +125,11 @@ export async function runPipeline(env: Env): Promise<RunCounts & { errors: strin
   let toScore: JobRow[] = [];
   try {
     const unscored = await db.getUnscoredJobs(env.DB, db.daysAgoIso(criteria.lookbackDays + 3));
-    const titled = applyTitleGate(unscored, criteria);
+    // getUnscoredJobs already excludes these in SQL, so this is belt and
+    // braces: it is the readable statement of the rule, and it keeps this
+    // stage correct if that query is ever rewritten.
+    const scoreableSources = unscored.filter((j) => !UNSCORED_SOURCES.includes(j.source));
+    const titled = applyTitleGate(scoreableSources, criteria);
 
     // -- Stage 4b: enrich. Only Reed exposes a detail endpoint; Adzuna excerpts
     //    stay truncated and are deferred to the scorer by the body gate.
@@ -121,7 +163,16 @@ export async function runPipeline(env: Env): Promise<RunCounts & { errors: strin
         `${enriched} enriched, ${bodied.passed.length} passed body`,
       JSON.stringify({ ...titled.counts, ...bodied.counts }),
     );
-    toScore = bodied.passed.slice(0, criteria.maxScoredPerRun);
+    // Email postings get a budget of their own before the global cap, or one
+    // noisy Indeed morning consumes the whole scoring allowance and crowds out
+    // Reed and Adzuna. Boards come first because they carry full descriptions
+    // and score better; anything squeezed out is not lost, since getUnscoredJobs
+    // reconsiders the backlog on the next run.
+    const boardJobs = bodied.passed.filter((j) => !EMAIL_SOURCES.has(j.source));
+    const emailJobs = bodied.passed
+      .filter((j) => EMAIL_SOURCES.has(j.source))
+      .slice(0, criteria.maxEmailJobsPerRun);
+    toScore = [...boardJobs, ...emailJobs].slice(0, criteria.maxScoredPerRun);
   } catch (err) {
     errors.push(`prefilter: ${String(err)}`);
   }
@@ -232,7 +283,7 @@ async function checkSignature(url: URL, env: Env, fields: string[]): Promise<boo
 export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Two triggers share one handler: the daily collection and the Sunday summary.
-    if (event.cron === '0 7 * * SUN') {
+    if (event.cron === '0 8 * * SUN') {
       ctx.waitUntil(runWeeklySummary(env));
       return;
     }
@@ -337,6 +388,44 @@ export default {
         );
       }
 
+      if (path === '/settings') {
+        if (!viewer) return json({ error: 'not authorised' }, 403);
+        const overrides = await readOverrides(env.DB);
+        const criteria = await loadCriteria(env.DB);
+        const rescorable = await db.countRescorable(env.DB, db.daysAgoIso(criteria.lookbackDays + 3));
+        return html(renderSettings(defaultCriteria, criteria, overrides, rescorable));
+      }
+
+      // Clears scores inside the lookback window so the next run re-judges
+      // them under whatever criteria are live now. Destructive — jobs Claude
+      // already scored lose that score — so this fires only on an explicit
+      // button press, never automatically from a settings save.
+      if (path === '/api/rescore' && request.method === 'POST') {
+        if (!viewer) return json({ error: 'not authorised' }, 403);
+        const criteria = await loadCriteria(env.DB);
+        const since = db.daysAgoIso(criteria.lookbackDays + 3);
+        const cleared = await db.clearScoresSince(env.DB, since);
+        console.log(`rescore: cleared ${cleared} scores since ${since}`);
+        return json({ ok: true, cleared });
+      }
+
+      if (path === '/api/settings' && request.method === 'POST') {
+        if (!viewer) return json({ error: 'not authorised' }, 403);
+        const body = (await request.json()) as { key?: string; value?: unknown; reset?: boolean };
+        const key = String(body.key ?? '');
+        if (!isSettableKey(key)) return json({ error: 'unknown setting' }, 400);
+
+        if (body.reset) {
+          await clearOverride(env.DB, key);
+          return json({ ok: true, key, effective: (await loadCriteria(env.DB))[key as keyof Criteria] });
+        }
+
+        const result = FIELD_VALIDATORS[key](body.value);
+        if (!result.ok) return json({ error: `${key} ${result.error}` }, 400);
+        await setOverride(env.DB, key, result.value);
+        return json({ ok: true, key, effective: result.value });
+      }
+
       if (path === '/api/status' && request.method === 'POST') {
         if (!viewer) return json({ error: 'not authorised' }, 403);
         const body = (await request.json()) as { job?: string; status?: string; notes?: string };
@@ -368,6 +457,7 @@ export default {
       // layout can be checked on a day when nothing actually matched.
       if (path === '/digest/preview') {
         if (!viewer) return json({ error: 'not authorised' }, 403);
+        const criteria = await loadCriteria(env.DB);
         const min = Number(url.searchParams.get('min') ?? criteria.minScoreForDigest);
         const days = Number(url.searchParams.get('days') ?? 1);
         const since = db.daysAgoIso(Number.isFinite(days) ? days : 1);
@@ -401,19 +491,70 @@ export default {
         return json({ ok: true });
       }
 
+      // Renders what the alert parsers make of recent mail without inserting
+      // anything. The check to run when a parser has gone quiet.
+      if (path === '/gmail/preview') {
+        if (!viewer) return json({ error: 'not authorised' }, 403);
+        const days = Number(url.searchParams.get('days') ?? 2);
+        const window = Number.isFinite(days) && days > 0 ? Math.floor(days) : 2;
+        const criteria = await loadCriteria(env.DB);
+        const query = criteria.gmailQuery.replace(/newer_than:\d+d/, `newer_than:${window}d`);
+
+        const { jobs, errors: gmailErrors } = await fetchGmail(env, criteria, query);
+        const rows = jobs
+          .map(
+            (j) => `<tr>
+              <td>${escapeHtml(j.source)}</td>
+              <td><a href="${escapeHtml(j.url)}">${escapeHtml(j.title)}</a></td>
+              <td>${escapeHtml(j.employer ?? '—')}</td>
+              <td>${escapeHtml(j.location_raw ?? '—')}</td>
+              <td>${j.salary_min ?? '—'}${j.salary_max ? `–${j.salary_max}` : ''} ${escapeHtml(j.salary_period)}</td>
+              <td>${escapeHtml((j.description ?? '').slice(0, 160))}</td>
+            </tr>`,
+          )
+          .join('');
+
+        return html(
+          layout(
+            'Gmail preview — Job Monitor',
+            `<div class="prose">
+               <h1>Gmail preview</h1>
+               <p style="color:var(--dim)">${jobs.length} postings parsed from the last
+                 ${window} day(s). Nothing was written to the database.</p>
+               <p style="color:var(--dim)"><code>${escapeHtml(query)}</code></p>
+               ${gmailErrors
+                 .map((e) => `<p style="color:var(--sig-fail)">${escapeHtml(e)}</p>`)
+                 .join('')}
+               <table style="width:100%;border-collapse:collapse;font-size:13px">
+                 <tr style="text-align:left">
+                   <th>source</th><th>title</th><th>employer</th>
+                   <th>location</th><th>salary</th><th>description</th>
+                 </tr>
+                 ${rows || '<tr><td colspan="6">Nothing parsed.</td></tr>'}
+               </table>
+             </div>`,
+          ),
+        );
+      }
+
       // ---------------------------------------------------------- portal
       if (path === '/') {
         if (!viewer) return notAuthorised();
 
+        const criteria = await loadCriteria(env.DB);
         const minRaw = url.searchParams.get('min');
+        const source = url.searchParams.get('source') ?? undefined;
         const filter = {
           minScore: minRaw !== null && minRaw !== '' ? Number(minRaw) : undefined,
           status: url.searchParams.get('status') ?? undefined,
-          source: url.searchParams.get('source') ?? undefined,
+          source,
           contract: url.searchParams.get('contract') ?? undefined,
           remote: url.searchParams.get('remote') ?? undefined,
           search: url.searchParams.get('q') ?? undefined,
           sort: (url.searchParams.get('sort') as 'score' | 'posted' | 'seen' | null) ?? undefined,
+          // Never-scored rows are listed only when the request says so, so a
+          // plain load of / is unchanged.
+          leads: db.wantsLeads(url.searchParams.get('leads'), source),
           limit: 200,
         };
 
@@ -464,6 +605,7 @@ async function ensureTailored(
   }
 
   try {
+    const criteria = await loadCriteria(env.DB);
     const draft = await tailorForJob(env.ANTHROPIC_API_KEY, job, profile, criteria);
     await db.saveTailored(env.DB, jobId, draft.cvSummary, draft.coverLetter, draft.model);
     return { job, cvSummary: draft.cvSummary, coverLetter: draft.coverLetter, model: draft.model };

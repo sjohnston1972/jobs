@@ -66,9 +66,14 @@ Then create a Cloudflare Access application for the hostname with an allow
 policy for your account, and put its team domain and AUD tag into the `[vars]`
 block in `wrangler.toml`. The Worker verifies the assertion Access forwards.
 
-Cron triggers are declared in `wrangler.toml`: 06:00 UTC daily for collection,
-07:00 UTC Sunday for the application summary. Cron is always UTC, so the daily
-digest lands at 07:00 during British Summer Time.
+Cron triggers are declared in `wrangler.toml`: 07:00 UTC daily for collection,
+08:00 UTC Sunday for the application summary. Cron is always UTC, so the daily
+digest lands at 08:00 during British Summer Time.
+
+The daily trigger was moved off 06:00 UTC on 2026-08-18: Adzuna's API returned
+HTTP 503 to every request at that hour across ten consecutive scheduled runs,
+while Reed and Gmail succeeded in the same runs and the same Adzuna queries
+returned 200 when run manually in the afternoon.
 
 ## Tuning
 

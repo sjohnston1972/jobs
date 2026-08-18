@@ -1,3 +1,4 @@
+import { fetchWithRetry } from '../lib/http';
 import type { NormalisedJob } from '../lib/types';
 import {
   inferContractType,
@@ -38,7 +39,9 @@ export async function fetchAdzuna(
   url.searchParams.set('results_per_page', String(resultsPerPage));
   url.searchParams.set('content-type', 'application/json');
 
-  const response = await fetch(url.toString(), { headers: { accept: 'application/json' } });
+  const response = await fetchWithRetry(url.toString(), {
+    headers: { accept: 'application/json' },
+  });
   if (!response.ok) {
     throw new Error(`Adzuna "${query}" — HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`);
   }

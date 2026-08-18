@@ -1,9 +1,11 @@
 import { callClaude, extractJson } from '../lib/claude';
 import type {
+  Attendance,
   Criteria,
   Ir35Signal,
   JobRow,
   RemoteConfidence,
+  RemoteRequirement,
   ScoreResult,
   SeniorityFit,
 } from '../lib/types';
@@ -11,48 +13,80 @@ import type {
 /** Descriptions are capped so a 12,000-word public sector spec cannot blow the prompt out. */
 const MAX_DESCRIPTION_CHARS = 9000;
 
-const SYSTEM_PROMPT = `You assess UK job postings for one specific candidate and return JSON only.
+/**
+ * Rule 3 is selected by the configured level, and rule 1 quotes the configured
+ * threshold. Both were literals until the threshold became adjustable, at which
+ * point a prompt saying "60 is the threshold" while the digest used 40 would
+ * have had the model scoring to a bar nobody was measuring against.
+ */
+const REMOTE_RULES: Record<RemoteRequirement, string> = {
+  strict: `3. The candidate will only accept FULLY remote work. ANY stated
+   requirement to attend an office or travel disqualifies — there is no
+   threshold below which it becomes acceptable. Treat all of these as "low":
+     - "hybrid", "2 days per week in the office", "3 days on site"
+     - "98% remote", "mostly remote", "predominantly remote"
+     - "occasional travel", "very occasional travel", "rare travel",
+       "travel as required", "attendance for quarterly planning"
+     - a named office location given as a place of work`,
+
+  mostly: `3. The candidate accepts remote work with occasional travel, and
+   rejects any fixed attendance pattern. "98% remote with occasional travel",
+   "very occasional travel" and "travel as required" are ACCEPTABLE and should
+   not cost significant points. "Hybrid", "2 days per week in the office",
+   "3 days on site" and a named office given as the place of work are NOT
+   acceptable and should score poorly.`,
+
+  any: `3. Working location does not disqualify a posting. Note it and let it
+   cost a few points where it is inconvenient, but judge the role primarily on
+   its technical and seniority fit.`,
+};
+
+const ATTENDANCE_RULE = `4. Extract what the posting STATES about office attendance into
+   \`attendance\`. This is a fact, not a judgement — report what the text says
+   and nothing more:
+     - "none"       fully remote, no attendance of any kind mentioned as required
+     - "occasional" ad-hoc, rare or as-required travel; no fixed pattern
+     - "fixed"      a recurring pattern — hybrid, N days per week, weekly on site
+     - "onsite"     the work is based at a named location, remote not offered
+     - "unstated"   the posting never addresses working location
+   Use "unstated" when the text is silent. Do not infer "none" from silence.`;
+
+export function buildSystemPrompt(criteria: Criteria): string {
+  return `You assess UK job postings for one specific candidate and return JSON only.
 
 Rules you must follow:
 
 1. Score conservatively. Prefer a low score to a generous one. An inbox of false
-   positives is worse than an empty digest. 60 is the threshold for "worth
-   reading"; do not drift upward to be helpful.
+   positives is worse than an empty digest. ${criteria.minScoreForDigest} is the threshold
+   for "worth reading"; do not drift upward to be helpful.
 
 2. The job board's own "remote" flag is unreliable and is not shown to you.
    Judge remoteness ONLY from wording in the description, and quote the exact
    phrase you relied on in remote_evidence. If nothing in the text addresses
    working location, remote_confidence is "low" and remote_evidence is null.
-
-3. The candidate will only accept FULLY remote work. remote_confidence is
-   "high" ONLY when the posting states remote working with no attendance
-   requirement of any kind. ANY stated requirement to attend an office or
-   travel makes it "low" — there is no threshold below which it becomes
-   acceptable. Treat all of these as "low":
-     - "hybrid", "2 days per week in the office", "3 days on site"
-     - "98% remote", "mostly remote", "predominantly remote"
-     - "occasional travel", "very occasional travel", "rare travel",
-       "travel as required", "attendance for quarterly planning"
-     - a named office location given as a place of work
    Use "medium" only when the posting says remote but is genuinely ambiguous
-   about attendance, never when attendance is mentioned. A "low" posting MUST
-   score below 40 however good the role is otherwise.
+   about attendance, never when attendance is mentioned.
 
-4. For contract postings, extract any IR35 statement into ir35_signal. The
+${REMOTE_RULES[criteria.remoteRequirement]}
+
+${ATTENDANCE_RULE}
+
+5. For contract postings, extract any IR35 statement into ir35_signal. The
    candidate intends to trade through a limited company, so "inside" is a red
    flag and should cost significant points. Use "n/a" for permanent roles and
    "unstated" when a contract posting is silent on it.
 
-5. seniority_fit compares the posting's level to the candidate's. "below" means
+6. seniority_fit compares the posting's level to the candidate's. "below" means
    the posting is more junior than the candidate; that should cost points.
 
-6. red_flags is a short array of specific concerns. Each entry is a terse
+7. red_flags is a short array of specific concerns. Each entry is a terse
    label of at most six words, not a sentence and not an explanation —
    "inside IR35", "office attendance required", "salary below level",
    "12-month fixed term". The reasoning belongs in the reason field. Use an
    empty array when there are none, and do not invent concerns.
 
 Output a single JSON object and nothing else. No prose, no markdown fences.`;
+}
 
 const SCHEMA_HINT = `{
   "score": 0,
@@ -60,6 +94,7 @@ const SCHEMA_HINT = `{
   "remote_evidence": "the exact phrase in the posting that decided this, or \\"\\" if the posting never addresses working location",
   "ir35_signal": "inside|outside|unstated|n/a",
   "seniority_fit": "below|match|above",
+  "attendance": "none|occasional|fixed|onsite|unstated",
   "reason": "one sentence, under 25 words, specific to this posting",
   "red_flags": []
 }`;
@@ -76,12 +111,16 @@ const SCORE_SCHEMA = {
     remote_evidence: { type: 'string' },
     ir35_signal: { type: 'string', enum: ['inside', 'outside', 'unstated', 'n/a'] },
     seniority_fit: { type: 'string', enum: ['below', 'match', 'above'] },
+    attendance: {
+      type: 'string',
+      enum: ['none', 'occasional', 'fixed', 'onsite', 'unstated'],
+    },
     reason: { type: 'string' },
     red_flags: { type: 'array', items: { type: 'string' } },
   },
   required: [
     'score', 'remote_confidence', 'remote_evidence',
-    'ir35_signal', 'seniority_fit', 'reason', 'red_flags',
+    'ir35_signal', 'seniority_fit', 'attendance', 'reason', 'red_flags',
   ],
   additionalProperties: false,
 } as const;
@@ -92,6 +131,7 @@ interface RawScore {
   remote_evidence?: unknown;
   ir35_signal?: unknown;
   seniority_fit?: unknown;
+  attendance?: unknown;
   reason?: unknown;
   red_flags?: unknown;
 }
@@ -100,6 +140,38 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T | nul
   return typeof value === 'string' && (allowed as readonly string[]).includes(value)
     ? (value as T)
     : null;
+}
+
+/**
+ * Rule 3 enforced in code rather than only asked for in the prompt. Models
+ * drift on it — an early run scored a "98% remote, occasional travel to
+ * London" role at 72 — so the level decides the cap here, from a fact the
+ * model extracted rather than a judgement it made.
+ *
+ * `unstated` never caps at any level: a posting silent on working location is
+ * the truncated-excerpt case the body gate defers here on purpose, and capping
+ * it would reject genuinely remote roles on where an excerpt happened to end.
+ */
+export function capsScore(
+  requirement: RemoteRequirement,
+  attendance: Attendance | null,
+): boolean {
+  if (requirement === 'any') return false;
+  if (attendance === null || attendance === 'none' || attendance === 'unstated') return false;
+  if (requirement === 'strict') return true;
+  return attendance === 'fixed' || attendance === 'onsite';
+}
+
+/**
+ * The score a capped posting is stored at. 39 was safe only while
+ * minScoreForDigest was a fixed 60; now it is adjustable in 0-100, so the cap
+ * must always land strictly below whatever the threshold currently is, or a
+ * low threshold would let a capped score straight into the digest and the
+ * remote policy would stop excluding anything. Clamped so a threshold of 0
+ * cannot push the cap negative.
+ */
+export function capValueFor(minScoreForDigest: number): number {
+  return Math.max(0, Math.min(39, minScoreForDigest - 1));
 }
 
 export function buildScoringPrompt(job: JobRow, profile: string): string {
@@ -156,7 +228,7 @@ export async function scoreJob(
   try {
     raw = await callClaude(apiKey, {
       model,
-      system: SYSTEM_PROMPT,
+      system: buildSystemPrompt(criteria),
       prompt: buildScoringPrompt(job, profile),
       maxTokens: 600,
       temperature: 0,
@@ -169,6 +241,7 @@ export async function scoreJob(
       remote_evidence: null,
       ir35_signal: null,
       seniority_fit: null,
+      attendance: null,
       reason: `SCORING FAILED: ${String(err).slice(0, 400)}`,
       red_flags: [],
       model,
@@ -183,6 +256,7 @@ export async function scoreJob(
       remote_evidence: null,
       ir35_signal: null,
       seniority_fit: null,
+      attendance: null,
       reason: `UNPARSEABLE MODEL OUTPUT: ${raw.slice(0, 400)}`,
       red_flags: [],
       model,
@@ -200,15 +274,17 @@ export async function scoreJob(
 
   const confidence = oneOf<RemoteConfidence>(parsed.remote_confidence, ['high', 'medium', 'low']);
 
-  // Rule 3 is enforced here rather than only asked for in the prompt. Models
-  // drift on it — an early run scored a "98% remote, occasional travel to
-  // London" role at 72 — and "fully remote only" is the one requirement that
-  // is not a matter of degree.
+  const attendance = oneOf<Attendance>(parsed.attendance, [
+    'none', 'occasional', 'fixed', 'onsite', 'unstated',
+  ]);
+
+  const capValue = capValueFor(criteria.minScoreForDigest);
+
   let finalScore = score;
   let reasonSuffix = '';
-  if (confidence === 'low' && finalScore >= 40) {
-    finalScore = 39;
-    reasonSuffix = ` [capped from ${score}: remote confidence is low]`;
+  if (score > capValue && capsScore(criteria.remoteRequirement, attendance)) {
+    finalScore = capValue;
+    reasonSuffix = ` [capped from ${score}: attendance is ${attendance}, requirement is ${criteria.remoteRequirement}]`;
   }
 
   return {
@@ -220,6 +296,7 @@ export async function scoreJob(
         : null,
     ir35_signal: oneOf<Ir35Signal>(parsed.ir35_signal, ['inside', 'outside', 'unstated', 'n/a']),
     seniority_fit: oneOf<SeniorityFit>(parsed.seniority_fit, ['below', 'match', 'above']),
+    attendance,
     reason:
       (typeof parsed.reason === 'string' && parsed.reason.trim()
         ? parsed.reason.trim().slice(0, 400)
