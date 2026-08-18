@@ -52,12 +52,16 @@ export const APPLICATION_STATUSES: ApplicationStatus[] = [
 ];
 
 /**
- * Sources whose alert emails carry no description. A posting with no text
- * about working location scores "low" remote confidence by scoring rule 2,
- * which scoreJob caps at 39 — below minScoreForDigest. Scoring them cannot
- * ever surface one; it only spends. They are collected as leads and are
- * reachable in the portal's leads view (`/?leads=1`). Do not remove this as
- * dead weight.
+ * Sources whose alert emails carry no description. There is nothing for the
+ * scorer to judge but a title, so a Claude call buys a guess rather than an
+ * assessment. They are collected as leads and are reachable in the portal's
+ * leads view (`/?leads=1`). Do not remove this as dead weight.
+ *
+ * The original reason was different and no longer holds: a posting silent on
+ * working location used to score "low" remote confidence and be capped at 39,
+ * below the threshold. The cap now keys on the extracted `attendance` field,
+ * and `unstated` never caps at any level — so silence is no longer what keeps
+ * these out. The absent description is.
  *
  * Declared here rather than at any one use site because several unrelated
  * places need to agree on it: the prefilter drops them, getUnscoredJobs

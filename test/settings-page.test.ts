@@ -42,6 +42,28 @@ describe('renderSettings', () => {
     expect(render({ gmailQuery: '" onerror="alert(1)' })).not.toContain('onerror="alert(1)"');
   });
 
+  it('states the real cap in the remote-requirement labels, not a hard-coded 39', () => {
+    // capValueFor(20) is 19: the cap must stay strictly below the digest
+    // threshold, so a static "39" would be wrong for any threshold under 40.
+    const html = renderSettings(defaults, { ...defaults, minScoreForDigest: 20 }, {}, 0);
+    expect(html).toContain('19');
+    expect(html).not.toContain('caps the score at 39');
+  });
+
+  it('still states 39 at the default threshold of 40', () => {
+    const html = renderSettings(defaults, { ...defaults, minScoreForDigest: 40 }, {}, 0);
+    expect(html).toContain('39');
+  });
+
+  it('says applied jobs are excluded from the rescore count', () => {
+    // Asserted on a phrase unique to the rescore panel: a bare /applied/i
+    // also matches the word inside layout()'s stylesheet comment, so it
+    // would pass whatever this panel said.
+    expect(renderSettings(defaults, defaults, {}, 47)).toContain(
+      'marked as applied are excluded',
+    );
+  });
+
   it('reports the rescorable count', () => {
     expect(render({}, 47)).toContain('47');
   });
