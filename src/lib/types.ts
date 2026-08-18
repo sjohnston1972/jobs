@@ -34,6 +34,8 @@ export type Ir35Signal = 'inside' | 'outside' | 'unstated' | 'n/a';
 export type SeniorityFit = 'below' | 'match' | 'above';
 /** How much office attendance the candidate will tolerate. Enforced in code, not just the prompt. */
 export type RemoteRequirement = 'strict' | 'mostly' | 'any';
+/** What the posting states about office attendance. A fact, not a judgement. */
+export type Attendance = 'none' | 'occasional' | 'fixed' | 'onsite' | 'unstated';
 export type ApplicationStatus =
   | 'interested'
   | 'applied'
@@ -102,6 +104,7 @@ export interface ScoreResult {
   remote_evidence: string | null;
   ir35_signal: Ir35Signal | null;
   seniority_fit: SeniorityFit | null;
+  attendance: Attendance | null;
   reason: string;
   red_flags: string[];
   model: string;
@@ -114,6 +117,7 @@ export interface ScoredJob extends JobRow {
   remote_evidence: string | null;
   ir35_signal: Ir35Signal | null;
   seniority_fit: SeniorityFit | null;
+  attendance: Attendance | null;
   reason: string | null;
   red_flags: string[];
   scored_at: string;
@@ -131,6 +135,7 @@ export interface ScoredJob extends JobRow {
 export interface PortalJob extends Omit<ScoredJob, 'score' | 'scored_at'> {
   score: number | null;
   scored_at: string | null;
+  attendance: Attendance | null;
 }
 
 export interface RunCounts {

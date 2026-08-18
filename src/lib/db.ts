@@ -1,5 +1,6 @@
 import type {
   ApplicationStatus,
+  Attendance,
   JobRow,
   NormalisedJob,
   PortalJob,
@@ -194,8 +195,8 @@ export async function insertScore(
     .prepare(
       `INSERT OR REPLACE INTO scores (
          job_id, score, remote_confidence, remote_evidence, ir35_signal,
-         seniority_fit, reason, red_flags, model, scored_at
-       ) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+         seniority_fit, attendance, reason, red_flags, model, scored_at
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .bind(
       jobId,
@@ -204,6 +205,7 @@ export async function insertScore(
       result.remote_evidence,
       result.ir35_signal,
       result.seniority_fit,
+      result.attendance,
       result.reason,
       JSON.stringify(result.red_flags ?? []),
       result.model,
@@ -217,7 +219,7 @@ export async function insertScore(
 function selectWith(scoresJoin: 'JOIN' | 'LEFT JOIN'): string {
   return `
   SELECT j.*, s.score, s.remote_confidence, s.remote_evidence, s.ir35_signal,
-         s.seniority_fit, s.reason, s.red_flags, s.scored_at,
+         s.seniority_fit, s.attendance, s.reason, s.red_flags, s.scored_at,
          a.status, a.updated_at AS status_updated_at, a.notes
   FROM jobs j
   ${scoresJoin} scores s ON s.job_id = j.id
@@ -249,6 +251,7 @@ function toPortalJob(row: Record<string, unknown>): PortalJob {
     // A leads row has no scores row at all. Left as null so the UI can say so
     // rather than printing a 0, which would read as "assessed and rejected".
     score: row.score === null || row.score === undefined ? null : Number(row.score),
+    attendance: (row.attendance as Attendance | null) ?? null,
   };
 }
 

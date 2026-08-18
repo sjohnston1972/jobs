@@ -1,9 +1,11 @@
 import { callClaude, extractJson } from '../lib/claude';
 import type {
+  Attendance,
   Criteria,
   Ir35Signal,
   JobRow,
   RemoteConfidence,
+  RemoteRequirement,
   ScoreResult,
   SeniorityFit,
 } from '../lib/types';
@@ -60,6 +62,7 @@ const SCHEMA_HINT = `{
   "remote_evidence": "the exact phrase in the posting that decided this, or \\"\\" if the posting never addresses working location",
   "ir35_signal": "inside|outside|unstated|n/a",
   "seniority_fit": "below|match|above",
+  "attendance": "none|occasional|fixed|onsite|unstated",
   "reason": "one sentence, under 25 words, specific to this posting",
   "red_flags": []
 }`;
@@ -76,12 +79,16 @@ const SCORE_SCHEMA = {
     remote_evidence: { type: 'string' },
     ir35_signal: { type: 'string', enum: ['inside', 'outside', 'unstated', 'n/a'] },
     seniority_fit: { type: 'string', enum: ['below', 'match', 'above'] },
+    attendance: {
+      type: 'string',
+      enum: ['none', 'occasional', 'fixed', 'onsite', 'unstated'],
+    },
     reason: { type: 'string' },
     red_flags: { type: 'array', items: { type: 'string' } },
   },
   required: [
     'score', 'remote_confidence', 'remote_evidence',
-    'ir35_signal', 'seniority_fit', 'reason', 'red_flags',
+    'ir35_signal', 'seniority_fit', 'attendance', 'reason', 'red_flags',
   ],
   additionalProperties: false,
 } as const;
@@ -92,6 +99,7 @@ interface RawScore {
   remote_evidence?: unknown;
   ir35_signal?: unknown;
   seniority_fit?: unknown;
+  attendance?: unknown;
   reason?: unknown;
   red_flags?: unknown;
 }
@@ -100,6 +108,26 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T | nul
   return typeof value === 'string' && (allowed as readonly string[]).includes(value)
     ? (value as T)
     : null;
+}
+
+/**
+ * Rule 3 enforced in code rather than only asked for in the prompt. Models
+ * drift on it — an early run scored a "98% remote, occasional travel to
+ * London" role at 72 — so the level decides the cap here, from a fact the
+ * model extracted rather than a judgement it made.
+ *
+ * `unstated` never caps at any level: a posting silent on working location is
+ * the truncated-excerpt case the body gate defers here on purpose, and capping
+ * it would reject genuinely remote roles on where an excerpt happened to end.
+ */
+export function capsScore(
+  requirement: RemoteRequirement,
+  attendance: Attendance | null,
+): boolean {
+  if (requirement === 'any') return false;
+  if (attendance === null || attendance === 'none' || attendance === 'unstated') return false;
+  if (requirement === 'strict') return true;
+  return attendance === 'fixed' || attendance === 'onsite';
 }
 
 export function buildScoringPrompt(job: JobRow, profile: string): string {
@@ -169,6 +197,7 @@ export async function scoreJob(
       remote_evidence: null,
       ir35_signal: null,
       seniority_fit: null,
+      attendance: null,
       reason: `SCORING FAILED: ${String(err).slice(0, 400)}`,
       red_flags: [],
       model,
@@ -183,6 +212,7 @@ export async function scoreJob(
       remote_evidence: null,
       ir35_signal: null,
       seniority_fit: null,
+      attendance: null,
       reason: `UNPARSEABLE MODEL OUTPUT: ${raw.slice(0, 400)}`,
       red_flags: [],
       model,
@@ -200,15 +230,15 @@ export async function scoreJob(
 
   const confidence = oneOf<RemoteConfidence>(parsed.remote_confidence, ['high', 'medium', 'low']);
 
-  // Rule 3 is enforced here rather than only asked for in the prompt. Models
-  // drift on it — an early run scored a "98% remote, occasional travel to
-  // London" role at 72 — and "fully remote only" is the one requirement that
-  // is not a matter of degree.
+  const attendance = oneOf<Attendance>(parsed.attendance, [
+    'none', 'occasional', 'fixed', 'onsite', 'unstated',
+  ]);
+
   let finalScore = score;
   let reasonSuffix = '';
-  if (confidence === 'low' && finalScore >= 40) {
+  if (score >= 40 && capsScore(criteria.remoteRequirement, attendance)) {
     finalScore = 39;
-    reasonSuffix = ` [capped from ${score}: remote confidence is low]`;
+    reasonSuffix = ` [capped from ${score}: attendance is ${attendance}, requirement is ${criteria.remoteRequirement}]`;
   }
 
   return {
@@ -220,6 +250,7 @@ export async function scoreJob(
         : null,
     ir35_signal: oneOf<Ir35Signal>(parsed.ir35_signal, ['inside', 'outside', 'unstated', 'n/a']),
     seniority_fit: oneOf<SeniorityFit>(parsed.seniority_fit, ['below', 'match', 'above']),
+    attendance,
     reason:
       (typeof parsed.reason === 'string' && parsed.reason.trim()
         ? parsed.reason.trim().slice(0, 400)
