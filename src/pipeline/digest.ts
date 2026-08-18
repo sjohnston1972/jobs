@@ -1,5 +1,6 @@
 import { signedUrl } from '../lib/sign';
-import type { Criteria, JobRow, RunCounts, ScoredJob } from '../lib/types';
+import { capsScore } from './score';
+import type { Criteria, JobRow, RemoteRequirement, RunCounts, ScoredJob } from '../lib/types';
 
 const BAND = {
   high: { at: 75, ink: '#0F7A5A', chip: '#E3F5EE', label: 'strong' },
@@ -131,7 +132,7 @@ export async function buildDigest(
   });
 
   if (belowThreshold.length) {
-    textParts.push(`Filtered out ${belowThreshold.length} today: ${summariseRejects(belowThreshold)}.`);
+    textParts.push(`Filtered out ${belowThreshold.length} today: ${summariseRejects(belowThreshold, criteria.remoteRequirement)}.`);
   }
   textParts.push('', `All postings: ${siteUrl}`);
 
@@ -151,7 +152,7 @@ export async function buildDigest(
 
   const filteredNote = belowThreshold.length
     ? `<tr><td style="padding:14px 4px;font:400 13px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#7A8B92;">
-         Filtered out ${belowThreshold.length} today: ${escapeHtml(summariseRejects(belowThreshold))}.
+         Filtered out ${belowThreshold.length} today: ${escapeHtml(summariseRejects(belowThreshold, criteria.remoteRequirement))}.
        </td></tr>`
     : '';
 
@@ -257,9 +258,19 @@ function capitalise(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** "3 hybrid, 1 seniority below" — why the near-misses missed. */
-export function summariseRejects(jobs: ScoredJob[]): string {
-  let hybrid = 0;
+/**
+ * "3 excluded on attendance, 1 seniority below" — why the near-misses missed.
+ *
+ * Keyed on capsScore rather than remote_confidence: those used to be the same
+ * thing when remoteRequirement was always strict, but under a non-strict
+ * level a posting silent on location (low/unstated confidence) is perfectly
+ * acceptable — it missed on fit, not on remoteness — and capsScore is what
+ * actually decided the outcome. A NULL attendance (the legacy scores that
+ * predate the column) makes capsScore return false, so those are correctly
+ * left out of this count rather than counted as remote rejects.
+ */
+export function summariseRejects(jobs: ScoredJob[], requirement: RemoteRequirement): string {
+  let excludedOnAttendance = 0;
   let seniority = 0;
   let ir35 = 0;
   let failed = 0;
@@ -267,14 +278,14 @@ export function summariseRejects(jobs: ScoredJob[]): string {
 
   for (const job of jobs) {
     if (job.score === -1) failed++;
-    else if (job.remote_confidence === 'low' || job.remote_confidence === 'medium') hybrid++;
+    else if (capsScore(requirement, job.attendance)) excludedOnAttendance++;
     else if (job.seniority_fit === 'below') seniority++;
     else if (job.ir35_signal === 'inside') ir35++;
     else other++;
   }
 
   const parts = [
-    hybrid ? `${hybrid} not fully remote` : null,
+    excludedOnAttendance ? `${excludedOnAttendance} excluded on attendance` : null,
     seniority ? `${seniority} seniority below` : null,
     ir35 ? `${ir35} inside IR35` : null,
     failed ? `${failed} scoring failed` : null,
