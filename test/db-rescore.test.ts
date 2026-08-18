@@ -39,11 +39,19 @@ describe('rescore helpers', () => {
     // on their own, since none of them requires a WHERE clause to exist.
     expect(sql).toContain('WHERE');
     expect(bind).toHaveBeenCalledWith('2026-08-11T00:00:00.000Z');
+    // Non-zero on purpose: a happy path asserting 0 would be indistinguishable
+    // from the fallback case below, since both would then assert the same value.
     expect(deleted).toBe(3);
   });
 
   it('falls back to 0 when D1 reports no changes metadata', async () => {
-    const { db } = fakeDb(null, { meta: { changes: 0 } });
+    // No `meta` key at all, so `result.meta?.changes` short-circuits on the
+    // optional chain before ever reaching `.changes`, and the `?? 0` is what
+    // supplies the return value. `{ meta: { changes: 0 } }` would NOT do
+    // this — 0 is a legitimate value, so `0 ?? 0` never exercises the
+    // fallback and the assertion would pass identically against a regressed
+    // `result.meta.changes` with the guard stripped entirely.
+    const { db } = fakeDb(null, {});
     const deleted = await clearScoresSince(db, '2026-08-11T00:00:00.000Z');
     expect(deleted).toBe(0);
   });
