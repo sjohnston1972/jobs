@@ -61,7 +61,7 @@ describe('buildSystemPrompt', () => {
 
   it('allows occasional travel under mostly', () => {
     const prompt = buildSystemPrompt(criteria({ remoteRequirement: 'mostly' }));
-    expect(prompt).toContain('occasional');
+    expect(prompt).toContain('are ACCEPTABLE');
     expect(prompt).not.toContain('will only accept FULLY remote work');
   });
 

@@ -22,9 +22,12 @@ const MAX_DESCRIPTION_CHARS = 9000;
 const REMOTE_RULES: Record<RemoteRequirement, string> = {
   strict: `3. The candidate will only accept FULLY remote work. ANY stated
    requirement to attend an office or travel disqualifies — there is no
-   threshold below which it becomes acceptable. Treat "98% remote",
-   "mostly remote", "occasional travel" and "travel as required" as
-   disqualifying, exactly as you would treat "hybrid".`,
+   threshold below which it becomes acceptable. Treat all of these as "low":
+     - "hybrid", "2 days per week in the office", "3 days on site"
+     - "98% remote", "mostly remote", "predominantly remote"
+     - "occasional travel", "very occasional travel", "rare travel",
+       "travel as required", "attendance for quarterly planning"
+     - a named office location given as a place of work`,
 
   mostly: `3. The candidate accepts remote work with occasional travel, and
    rejects any fixed attendance pattern. "98% remote with occasional travel",
@@ -61,6 +64,8 @@ Rules you must follow:
    Judge remoteness ONLY from wording in the description, and quote the exact
    phrase you relied on in remote_evidence. If nothing in the text addresses
    working location, remote_confidence is "low" and remote_evidence is null.
+   Use "medium" only when the posting says remote but is genuinely ambiguous
+   about attendance, never when attendance is mentioned.
 
 ${REMOTE_RULES[criteria.remoteRequirement]}
 
