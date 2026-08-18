@@ -73,7 +73,11 @@ npx wrangler tail                       # live logs
 
 Migrations are numbered files in `migrations/`, applied by hand with
 `wrangler d1 execute --file=`. `schema.sql` is the current full shape for a
-fresh database; it is not a migration runner.
+fresh database; it is not a migration runner. Apply a migration before
+deploying the code that depends on it — a migration that adds a column a new
+release reads or writes (e.g. `0003_settings_and_attendance.sql` and
+`scores.attendance`) will otherwise make every run throw after the paid Claude
+calls complete, silently skipping the digest until it is applied.
 
 Tuning lives in `config/criteria.json` and `config/profile.md`. Both are bundled
 into the Worker at build time, so editing them means redeploying — no migration,

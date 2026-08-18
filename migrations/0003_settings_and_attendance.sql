@@ -6,6 +6,13 @@
 --
 -- Apply with:
 --   npx wrangler d1 execute job-monitor --remote --file=./migrations/0003_settings_and_attendance.sql
+--
+-- MUST be applied before deploying code that reads scores.attendance. If the
+-- code goes live first, insertScore binds an 11th column that does not exist,
+-- so every paid Claude call completes and then throws before the score is
+-- stored, and getDigestJobs throws the same way — no digest email is sent at
+-- all that day, not even the deliberate "nothing matched" one, and it repeats
+-- every morning until the migration is applied.
 
 -- Sparse overrides for config/criteria.json. Only fields actually changed in
 -- the portal get a row; everything else continues to track the bundled file,
