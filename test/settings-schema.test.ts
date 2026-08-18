@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FIELD_VALIDATORS, SETTABLE_KEYS, isSettableKey } from '../src/lib/settings-schema';
+import realCriteria from '../config/criteria.json';
 
 function check(key: string, value: unknown) {
   return FIELD_VALIDATORS[key](value);
@@ -107,6 +108,30 @@ describe('enumerated and string fields', () => {
 
   it('rejects an empty model name', () => {
     expect(check('scoringModel', '   ').ok).toBe(false);
+  });
+});
+
+describe('model fields', () => {
+  it('accepts a known model id', () => {
+    expect(check('scoringModel', 'claude-haiku-4-5-20251001')).toEqual({
+      ok: true,
+      value: 'claude-haiku-4-5-20251001',
+    });
+    expect(check('tailoringModel', 'claude-opus-5')).toEqual({ ok: true, value: 'claude-opus-5' });
+  });
+
+  it('rejects a typo\'d model id rather than saving it', () => {
+    // The failure this guards against: "claude-haiku-4.5" (dots for
+    // dashes) used to save as a plain non-empty string, then failed every
+    // scoring call at runtime.
+    expect(check('scoringModel', 'claude-haiku-4.5').ok).toBe(false);
+    expect(check('tailoringModel', 'claude-sonnet-5-not-a-real-model').ok).toBe(false);
+  });
+
+  it('accepts every model value currently shipped in config/criteria.json', () => {
+    const criteria = realCriteria as { scoringModel: string; tailoringModel: string };
+    expect(check('scoringModel', criteria.scoringModel).ok).toBe(true);
+    expect(check('tailoringModel', criteria.tailoringModel).ok).toBe(true);
   });
 });
 
