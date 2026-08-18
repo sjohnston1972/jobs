@@ -391,8 +391,22 @@ export default {
       if (path === '/settings') {
         if (!viewer) return json({ error: 'not authorised' }, 403);
         const overrides = await readOverrides(env.DB);
-        // 0 until Task 9 adds countRescorable.
-        return html(renderSettings(defaultCriteria, overrides, 0));
+        const criteria = await loadCriteria(env.DB);
+        const rescorable = await db.countRescorable(env.DB, db.daysAgoIso(criteria.lookbackDays + 3));
+        return html(renderSettings(defaultCriteria, overrides, rescorable));
+      }
+
+      // Clears scores inside the lookback window so the next run re-judges
+      // them under whatever criteria are live now. Destructive — jobs Claude
+      // already scored lose that score — so this fires only on an explicit
+      // button press, never automatically from a settings save.
+      if (path === '/api/rescore' && request.method === 'POST') {
+        if (!viewer) return json({ error: 'not authorised' }, 403);
+        const criteria = await loadCriteria(env.DB);
+        const since = db.daysAgoIso(criteria.lookbackDays + 3);
+        const cleared = await db.clearScoresSince(env.DB, since);
+        console.log(`rescore: cleared ${cleared} scores since ${since}`);
+        return json({ ok: true, cleared });
       }
 
       if (path === '/api/settings' && request.method === 'POST') {

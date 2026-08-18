@@ -186,6 +186,37 @@ export async function getUnscoredJobs(
   return results ?? [];
 }
 
+/**
+ * Scores for jobs still inside the lookback window. Bounded by the job's
+ * first_seen_at rather than the score's scored_at, because the question is
+ * "which jobs would the next run reconsider", and getUnscoredJobs bounds on
+ * first_seen_at too.
+ */
+export async function countRescorable(db: D1Database, sinceIso: string): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM scores s
+       JOIN jobs j ON j.id = s.job_id
+       WHERE j.first_seen_at >= ?`,
+    )
+    .bind(sinceIso)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/** Deletes scores for jobs still inside the lookback window, same bound as countRescorable. */
+export async function clearScoresSince(db: D1Database, sinceIso: string): Promise<number> {
+  const result = await db
+    .prepare(
+      `DELETE FROM scores WHERE job_id IN (
+         SELECT j.id FROM jobs j WHERE j.first_seen_at >= ?
+       )`,
+    )
+    .bind(sinceIso)
+    .run();
+  return result.meta?.changes ?? 0;
+}
+
 export async function insertScore(
   db: D1Database,
   jobId: string,
