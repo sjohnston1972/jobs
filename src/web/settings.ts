@@ -1,6 +1,6 @@
 import { escapeHtml } from '../pipeline/digest';
 import { layout } from './portal';
-import { SETTABLE_KEYS } from '../lib/settings-schema';
+import { MODEL_IDS, SETTABLE_KEYS } from '../lib/settings-schema';
 import type { Criteria } from '../lib/types';
 
 type Group = { title: string; note?: string; keys: string[] };
@@ -36,6 +36,12 @@ function control(key: string, effective: unknown): string {
     ).join('');
     return `<select class="field__control" data-key="${escapeHtml(key)}">${opts}</select>`;
   }
+  if (key === 'scoringModel' || key === 'tailoringModel') {
+    const opts = MODEL_IDS.map(
+      (v) => `<option value="${escapeHtml(v)}"${v === effective ? ' selected' : ''}>${escapeHtml(v)}</option>`,
+    ).join('');
+    return `<select class="field__control" data-key="${escapeHtml(key)}">${opts}</select>`;
+  }
   if (Array.isArray(effective)) {
     const items = effective
       .map(
@@ -52,6 +58,7 @@ function control(key: string, effective: unknown): string {
 
 export function renderSettings(
   defaults: Criteria,
+  effective: Criteria,
   overrides: Record<string, unknown>,
   rescorable: number,
 ): string {
@@ -62,7 +69,13 @@ export function renderSettings(
       .filter((key) => SETTABLE_KEYS.includes(key))
       .map((key) => {
         const isOverridden = Object.prototype.hasOwnProperty.call(overrides, key);
-        const effective = isOverridden ? overrides[key] : (defaults as unknown as Record<string, unknown>)[key];
+        // Read from the loaded (validated, merged) criteria rather than the
+        // raw overrides row: a row written directly with wrangler d1 execute
+        // — which the plan itself teaches — or one written before a validator
+        // tightened, can hold a value the run never actually uses. `overrides`
+        // still decides the badge and the Reset button below, because that is
+        // about whether a row exists at all, not what it currently contains.
+        const value = (effective as unknown as Record<string, unknown>)[key];
         const badge = isOverridden
           ? `<span class="badge">overridden</span>
              <button type="button" class="btn" data-reset="${escapeHtml(key)}">Reset to default</button>`
@@ -74,7 +87,7 @@ export function renderSettings(
         );
         return `<div class="field" data-field="${escapeHtml(key)}">
             <label>${escapeHtml(key)} ${badge}</label>
-            ${control(key, effective)}
+            ${control(key, value)}
             <p class="default">default: ${dflt}</p>
           </div>`;
       })
@@ -86,7 +99,7 @@ export function renderSettings(
   const rescore = `<section><h2>Rescore</h2>
       <p>${rescorable} scored jobs are inside the current lookback window.
          Re-judging them costs ${rescorable} Claude calls.</p>
-      <button type="button" class="btn" id="rescore">Rescore these ${rescorable}</button>
+      <button type="button" class="btn" id="rescore" data-count="${rescorable}">Rescore these ${rescorable}</button>
     </section>`;
 
   return layout('Settings — Job Monitor', `<div class="prose"><h1>Settings</h1>${rows}${rescore}</div>`, SETTINGS_SCRIPT);
@@ -228,6 +241,11 @@ const SETTINGS_SCRIPT = /* js */ `
 
     var rescoreBtn = target.closest('#rescore');
     if (rescoreBtn) {
+      // Irreversible — clearScoresSince deletes real score rows — so make the
+      // owner confirm how many are about to be re-judged before it fires.
+      if (!window.confirm('Re-judge ' + rescoreBtn.getAttribute('data-count') + ' jobs? Their current scores will be deleted.')) {
+        return;
+      }
       rescoreBtn.disabled = true;
       rescoreBtn.textContent = 'Rescoring…';
       fetch('/api/rescore', { method: 'POST' })

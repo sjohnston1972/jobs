@@ -10,8 +10,10 @@ const defaults = {
   scoringModel: 'm', tailoringModel: 't',
 } as Criteria;
 
+// Mirrors mergeCriteria: the page is passed loadCriteria's result, which is
+// the file defaults with overrides merged on top, not the raw overrides row.
 const render = (overrides: Record<string, unknown> = {}, rescorable = 0) =>
-  renderSettings(defaults, overrides, rescorable);
+  renderSettings(defaults, { ...defaults, ...overrides }, overrides, rescorable);
 
 describe('renderSettings', () => {
   it('shows the effective value for an overridden field', () => {
@@ -42,5 +44,16 @@ describe('renderSettings', () => {
 
   it('reports the rescorable count', () => {
     expect(render({}, 47)).toContain('47');
+  });
+
+  it('shows the loaded effective value, not the raw overrides row, when they diverge', () => {
+    // Simulates a row written directly with wrangler d1 execute (or one from
+    // before a validator tightened): the overrides table says 999, but the
+    // merged/validated criteria actually in effect is what every run uses.
+    const html = renderSettings(defaults, { ...defaults, minScoreForDigest: 40 }, { minScoreForDigest: 999 }, 0);
+    expect(html).toContain('value="40"');
+    expect(html).not.toContain('value="999"');
+    // The badge still reflects that a row exists, independent of its content.
+    expect(html).toMatch(/overridden/i);
   });
 });
