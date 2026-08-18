@@ -27,6 +27,32 @@ describe('numeric fields', () => {
     expect(check('maxEmailsPerRun', 0).ok).toBe(false);
     expect(check('maxEmailJobsPerRun', 0).ok).toBe(false);
   });
+
+  it('rejects null, which Number() coerces to 0', () => {
+    expect(check('minScoreForDigest', null).ok).toBe(false);
+  });
+
+  it('rejects undefined', () => {
+    expect(check('minScoreForDigest', undefined).ok).toBe(false);
+  });
+
+  it('rejects boolean values', () => {
+    expect(check('minScoreForDigest', true).ok).toBe(false);
+    expect(check('minScoreForDigest', false).ok).toBe(false);
+  });
+
+  it('rejects arrays, which Number() coerces', () => {
+    expect(check('minScoreForDigest', [5]).ok).toBe(false);
+    expect(check('minScoreForDigest', []).ok).toBe(false);
+  });
+
+  it('rejects objects', () => {
+    expect(check('minScoreForDigest', {}).ok).toBe(false);
+  });
+
+  it('rejects numeric strings with trailing garbage', () => {
+    expect(check('minScoreForDigest', '40abc').ok).toBe(false);
+  });
 });
 
 describe('list fields', () => {
@@ -55,6 +81,18 @@ describe('list fields', () => {
 
   it('rejects a non-array', () => {
     expect(check('titleAllow', 'architect').ok).toBe(false);
+  });
+
+  it('rejects array elements that are not strings', () => {
+    expect(check('titleAllow', [{}]).ok).toBe(false);
+    expect(check('titleAllow', [5]).ok).toBe(false);
+  });
+
+  it('normalizes valid string arrays', () => {
+    expect(check('titleAllow', ['  Network Architect '])).toEqual({
+      ok: true,
+      value: ['network architect'],
+    });
   });
 });
 

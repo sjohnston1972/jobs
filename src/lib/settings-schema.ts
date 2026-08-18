@@ -15,7 +15,18 @@ export type FieldResult = { ok: true; value: unknown } | { ok: false; error: str
 /** `min: 1` on the per-run caps: zero disables a stage and looks exactly like a broken run. */
 function intIn(min: number, max: number) {
   return (v: unknown): FieldResult => {
-    const n = typeof v === 'string' ? Number(v.trim()) : Number(v);
+    let n: number;
+
+    if (typeof v === 'number') {
+      n = v;
+    } else if (typeof v === 'string') {
+      const trimmed = v.trim();
+      if (trimmed === '') return { ok: false, error: 'must be a whole number' };
+      n = Number(trimmed);
+    } else {
+      return { ok: false, error: 'must be a whole number' };
+    }
+
     if (!Number.isInteger(n)) return { ok: false, error: 'must be a whole number' };
     if (n < min || n > max) return { ok: false, error: `must be between ${min} and ${max}` };
     return { ok: true, value: n };
@@ -25,7 +36,10 @@ function intIn(min: number, max: number) {
 function stringList(allowEmpty: boolean) {
   return (v: unknown): FieldResult => {
     if (!Array.isArray(v)) return { ok: false, error: 'must be a list' };
-    const items = v.map((x) => String(x).trim().toLowerCase()).filter(Boolean);
+    for (const item of v) {
+      if (typeof item !== 'string') return { ok: false, error: 'must be a list of strings' };
+    }
+    const items = v.map((x) => (x as string).trim().toLowerCase()).filter(Boolean);
     if (!allowEmpty && items.length === 0) return { ok: false, error: 'must have at least one entry' };
     return { ok: true, value: items };
   };
